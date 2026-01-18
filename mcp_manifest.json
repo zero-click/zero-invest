@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_model": "FundInfo",
+  "name_for_human": "基金信息查询",
+  "description_for_model": "一个可以查询中国公募基金信息的工具。可以根据基金代码查询详细信息，也可以根据关键词搜索基金。",
+  "description_for_human": "查询中国公募基金的最新净值、历史表现、十大持仓股等信息。",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "/openapi.json"
+  },
+  "logo_url": "https://example.com/logo.png",
+  "contact_email": "support@example.com",
+  "legal_info_url": "http://www.example.com/legal"
+}
