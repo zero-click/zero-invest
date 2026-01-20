@@ -1,101 +1,118 @@
-# 基金信息 MCP 服务器
+# 中国基金信息查询 MCP 服务
 
-这是一个提供中国公募基金实时数据的 Web 服务。本项目作为大语言模型（LLM）的可调用插件（Model-Callable Plugin, MCP），允许 LLM 通过结构化的 API 查询基金信息。同时，它也保留了原有的命令行接口（CLI）功能。
+基于 **akshare** 和 **MCP Python SDK** 的中国公募基金数据查询服务。
 
-## 功能特性
+## ✨ 特性
 
--   **MCP 兼容**: 暴露 `mcp_manifest.json` 和 OpenAPI 规范，支持 LLM 的发现和集成。
--   **REST API**: 提供简洁的 API 端点，用于查询和搜索基金信息。
--   **实时数据**: 直接从数据源获取最新的基金详情，包括单位净值（NAV）、业绩表现和十大重仓股。
--   **本地数据库**: 缓存所有可用基金的列表，以实现快速搜索。
--   **命令行接口**: 可作为命令行工具直接进行本地查询。
+- 🎯 **标准化 MCP 实现** - 使用官方 MCP Python SDK
+- 📊 **丰富的基金数据** - 实时净值、历史业绩、持仓分析、风险指标
+- 🚀 **简单易用** - 装饰器语法定义工具，代码简洁清晰
+- 🔌 **多种传输协议** - 支持 stdio、SSE、HTTP
+- 💾 **智能缓存** - 自动缓存基金列表，提升响应速度
 
-## 项目结构
+## 🛠️ 技术栈
 
-```
-.
-├── .gitignore          # Git 忽略文件
-├── .venv/              # Python 虚拟环境
-├── fund_database.json  # 基金列表的本地缓存
-├── fund_server.py      # FastAPI Web 服务器 (MCP)
-├── fund_tool.py        # 核心逻辑和命令行工具
-├── mcp_manifest.json   # MCP 清单文件
-└── requirements.txt    # Python 依赖
-```
+- **MCP Python SDK** - Model Context Protocol 官方实现
+- **akshare** - 中国金融数据接口
+- **pandas/numpy** - 数据处理
 
-## API 端点
+## 📦 快速开始
 
-服务器提供以下 API 端点：
+### 1. 安装依赖
 
-| 方法   | 路径                           | 描述                                     |
-| ------ | ------------------------------ | ---------------------------------------- |
-| `GET`  | `/`                            | 服务欢迎消息。                             |
-| `GET`  | `/.well-known/mcp_manifest.json` | 提供 MCP 清单文件，用于 LLM 的发现。     |
-| `GET`  | `/docs`                        | 交互式 API 文档（Swagger UI）。          |
-| `GET`  | `/fund/{code}`                 | 获取指定基金的详细信息。                 |
-| `GET`  | `/search/{keyword}`            | 根据代码、名称或拼音搜索基金。           |
-| `POST` | `/update`                      | 触发本地基金数据库的更新。               |
-
-
-## 安装
-
-1.  **克隆仓库（如果适用）**
-    ```bash
-    # git clone <repository_url>
-    # cd <repository_directory>
-    ```
-
-2.  **设置环境**
-    本项目使用 Python 虚拟环境。如果尚未创建，请先创建：
-    ```bash
-    python3 -m venv .venv
-    ```
-
-3.  **激活虚拟环境**
-    -   macOS/Linux:
-        ```bash
-        source .venv/bin/activate
-        ```
-    -   Windows:
-        ```bash
-        .venv\Scripts\activate
-        ```
-
-4.  **安装依赖**
-    安装 `requirements.txt` 中列出的所有依赖包：
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-## 使用方法
-
-### 作为 MCP 服务器
-
-运行 Web 服务器：
 ```bash
-python3 fund_server.py
+# 创建虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
 ```
-服务器将在 `http://127.0.0.1:8000` 端口可用。
 
--   要交互式测试 API，请在浏览器中打开 `http://127.0.0.1:8000/docs`。
--   要查看 MCP 清单，请访问 `http://127.0.0.1:8000/.well-known/mcp_manifest.json`。
--   **查询示例**: `curl http://127.0.0.1:8000/fund/022364`
+### 2. 启动服务
 
-### 作为命令行工具
+```bash
+# 方式一：使用启动脚本（推荐）
+./start_mcp.sh
 
-原始的 CLI 功能保留在 `fund_tool.py` 中。您可以直接使用它进行本地查询。
+# 方式二：直接运行
+python fund_mcp_server.py
+```
 
-1.  **更新本地数据库（首次使用或需要更新时运行）**
-    ```bash
-    python3 fund_tool.py update
-    ```
+### 3. 配置 Claude Desktop
 
-2.  **搜索基金**
-    ```bash
-    python3 fund_tool.py search "科技"
-    ```
+编辑 `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
-3.  **查询基金详情**
-    ```bash
-    python3 fund_tool.py query 022364
-    ```
+```json
+{
+  "mcpServers": {
+    "fund-info": {
+      "command": "python",
+      "args": ["/Users/woosleyxu/code/ttjj-fund/fund_mcp_server.py"],
+      "env": {
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  }
+}
+```
+
+重启 Claude Desktop 即可使用。
+
+## 🛠️ 可用工具
+
+### 1. `search_funds` - 搜索基金
+搜索关键词：基金代码、名称、拼音缩写
+
+### 2. `get_fund_details` - 基金详情
+获取完整信息：净值、业绩、持仓、风险指标等
+
+### 3. `get_fund_rankings` - 基金排行榜
+各类型基金的业绩排行榜
+
+### 4. `get_fund_rating` - 基金评级
+上海证券、招商证券、济安金信等机构评级
+
+### 5. `refresh_fund_cache` - 刷新缓存
+更新基金数据缓存
+
+## 📁 项目结构
+
+```
+ttjj-fund/
+├── fund_tool_akshare.py    # 核心数据获取逻辑
+├── fund_mcp_server.py      # MCP 服务器
+├── requirements.txt        # 依赖列表
+├── mcp_manifest.json       # MCP 清单
+├── start_mcp.sh            # 启动脚本
+├── pytest.ini             # 测试配置
+├── test_fund_tool.py      # 测试文件
+├── QUICKSTART.md          # 快速指南
+└── README.md              # 本文档
+```
+
+## 🧪 测试
+
+```bash
+# 运行测试
+pytest test_fund_tool.py -v
+
+# 生成覆盖率报告
+pytest test_fund_tool.py --cov=fund_tool_akshare --cov-report=html
+```
+
+## 📚 更多文档
+
+- [README_MCP.md](README_MCP.md) - 详细的 MCP 使用文档
+- [QUICKSTART.md](QUICKSTART.md) - 快速开始指南
+- [TEST_REPORT.md](TEST_REPORT.md) - 测试报告说明
+
+## 📖 参考资料
+
+- [MCP 官方文档](https://modelcontextprotocol.io/)
+- [MCP Python SDK](https://modelcontextprotocol.github.io/python-sdk/)
+- [akshare 文档](https://akshare.akfamily.xyz/)
+
+---
+
+**注意**: 本服务仅供学习和研究使用，不构成投资建议。
