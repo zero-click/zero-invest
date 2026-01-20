@@ -477,3 +477,236 @@ pytestmark = [
 生成详细报告:
     pytest test_fund_tool.py -v --tb=short
 """
+
+
+# ============================================================================
+# 新增功能测试：基金经理、持仓、配置、费用、流动性
+# ============================================================================
+
+class TestGetFundManagerDetails:
+    """测试基金经理详情功能"""
+
+    def test_get_fund_manager_details_invalid_code(self):
+        """测试无效的基金代码"""
+        result = fund_tool.get_fund_manager_details('123')
+        assert result['status'] == 'error'
+        assert '无效的基金代码格式' in result['message']
+
+    @patch('fund_tool_akshare._get_all_managers')
+    def test_get_fund_manager_details_success(self, mock_managers):
+        """测试成功获取基金经理详情"""
+        # Mock 数据
+        mock_data = pd.DataFrame({
+            '序号': [1, 2],
+            '姓名': ['张三', '李四'],
+            '所属公司': ['华夏基金', '华夏基金'],
+            '现任基金代码': ['000001', '000001'],
+            '现任基金': ['华夏成长混合', '华夏成长混合'],
+            '累计从业时间': [1238, 800],
+            '现任基金资产总规模': [40.64, 35.20],
+            '现任基金最佳回报': [45.5, 38.2]
+        })
+        mock_managers.return_value = mock_data
+
+        # 清除缓存
+        fund_tool._get_all_managers.cache_clear()
+
+        # 执行查询
+        result = fund_tool.get_fund_manager_details('000001')
+
+        # 验证
+        assert result['status'] == 'success'
+        assert result['manager_count'] == 2
+        assert result['managers'][0]['姓名'] == '张三'
+        assert '1238天' in result['managers'][0]['累计从业时间']
+
+    @patch('fund_tool_akshare._get_all_managers')
+    def test_get_fund_manager_details_not_found(self, mock_managers):
+        """测试基金未找到"""
+        mock_data = pd.DataFrame({
+            '序号': [1],
+            '姓名': ['张三'],
+            '所属公司': ['华夏基金'],
+            '现任基金代码': ['000002'],
+            '现任基金': ['其他基金'],
+            '累计从业时间': [1000],
+            '现任基金资产总规模': [30.0],
+            '现任基金最佳回报': [40.0]
+        })
+        mock_managers.return_value = mock_data
+
+        fund_tool._get_all_managers.cache_clear()
+
+        result = fund_tool.get_fund_manager_details('000001')
+        assert result['status'] == 'success'
+        assert result['manager_count'] == 0
+        assert len(result['managers']) == 0
+
+
+class TestGetFundHoldingsAnalysis:
+    """测试持仓动态分析功能"""
+
+    def test_get_fund_holdings_analysis_invalid_code(self):
+        """测试无效的基金代码"""
+        result = fund_tool.get_fund_holdings_analysis('abc')
+        assert result['status'] == 'error'
+
+    @patch('fund_tool_akshare.ak.fund_portfolio_change_em')
+    @patch('fund_tool_akshare.ak.fund_portfolio_hold_em')
+    def test_get_fund_holdings_analysis_success(self, mock_hold, mock_change):
+        """测试成功获取持仓分析"""
+        # Mock 持仓变化数据
+        mock_change_data = pd.DataFrame({
+            '序号': [1, 2, 3],
+            '股票代码': ['600519', '000858', '002475'],
+            '股票名称': ['贵州茅台', '五粮液', '立讯精密'],
+            '本期累计买入金额': [10249.44, 8500.0, 7200.0],
+            '占期初基金资产净值比例': [3.26, 2.70, 2.29],
+            '季度': ['2023年4季度累计买入股票明细', '2023年4季度累计买入股票明细', '2023年4季度累计买入股票明细']
+        })
+        mock_change.return_value = mock_change_data
+
+        # Mock 最新持仓数据 (10大持仓总和 > 70%)
+        mock_hold_data = pd.DataFrame({
+            '序号': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            '股票代码': ['600519', '000858', '002475', '300059', '600036', '601318', '000333', '002594', '600276', '601012'],
+            '股票名称': ['贵州茅台', '五粮液', '立讯精密', '东方财富', '招商银行', '中国平安', '美的集团', '比亚迪', '恒瑞医药', '隆基绿能'],
+            '占净值比例': [9.5, 8.2, 7.8, 7.1, 6.9, 6.5, 6.2, 5.8, 5.5, 5.2]
+        })
+        mock_hold.return_value = mock_hold_data
+
+        # 执行查询
+        result = fund_tool.get_fund_holdings_analysis('000001', periods=2)
+
+        # 验证
+        assert result['status'] == 'success'
+        assert 'concentration' in result
+        # 前10大持仓总和 = 68.7%，根据逻辑：>70%高，>50%中，<=50%低
+        # 所以应该是"中"
+        assert result['concentration']['持仓集中度'] == '中'
+        assert len(result['latest_top_holdings']) == 10
+
+
+class TestGetFundAssetAllocation:
+    """测试资产配置功能"""
+
+    def test_get_fund_asset_allocation_invalid_code(self):
+        """测试无效的基金代码"""
+        result = fund_tool.get_fund_asset_allocation('1234567')
+        assert result['status'] == 'error'
+
+    @patch('fund_tool_akshare.ak.fund_portfolio_industry_allocation_em')
+    @patch('fund_tool_akshare.ak.fund_portfolio_hold_em')
+    @patch('fund_tool_akshare.ak.fund_portfolio_bond_hold_em')
+    def test_get_fund_asset_allocation_success(self, mock_bond, mock_stock, mock_industry):
+        """测试成功获取资产配置"""
+        # Mock 行业配置
+        mock_industry_data = pd.DataFrame({
+            '序号': [1, 2, 3],
+            '行业类别': ['制造业', '金融业', '信息传输、软件和信息技术服务业'],
+            '占净值比例': [57.32, 15.5, 8.2],
+            '市值': [143957.11, 38900.0, 20600.0],
+            '截止时间': ['2024-12-31', '2024-12-31', '2024-12-31']
+        })
+        mock_industry.return_value = mock_industry_data
+
+        # Mock 股票持仓
+        mock_stock_data = pd.DataFrame({
+            '股票名称': ['贵州茅台', '五粮液', '招商银行'],
+            '占净值比例': [8.5, 7.2, 5.5]
+        })
+        mock_stock.return_value = mock_stock_data
+
+        # Mock 债券持仓
+        mock_bond.return_value = pd.DataFrame()
+
+        # 执行查询
+        result = fund_tool.get_fund_asset_allocation('000001', '2024')
+
+        # 验证
+        assert result['status'] == 'success'
+        assert result['investment_style'] == '平衡型'
+        assert len(result['industry_allocation']) == 3
+        assert result['industry_allocation'][0]['行业类别'] == '制造业'
+
+
+class TestGetFundFeeDetails:
+    """测试费用明细功能"""
+
+    def test_get_fund_fee_details_invalid_code(self):
+        """测试无效的基金代码"""
+        result = fund_tool.get_fund_fee_details('abc')
+        assert result['status'] == 'error'
+
+    @patch('fund_tool_akshare.ak.fund_overview_em')
+    @patch('fund_tool_akshare.ak.fund_fee_em')
+    def test_get_fund_fee_details_success(self, mock_fee, mock_overview):
+        """测试成功获取费用明细"""
+        # Mock 赎回费率
+        mock_fee_data = pd.DataFrame({
+            '适用金额': ['---', '---'],
+            '适用期限': ['小于7天', '大于等于7天'],
+            '赎回费率': ['1.50%', '0.50%']
+        })
+        mock_fee.return_value = mock_fee_data
+
+        # Mock overview
+        mock_overview_data = pd.DataFrame({
+            '管理费率': ['1.50%'],
+            '托管费率': ['0.25%']
+        })
+        mock_overview.return_value = mock_overview_data
+
+        # 执行查询
+        result = fund_tool.get_fund_fee_details('000001')
+
+        # 验证
+        assert result['status'] == 'success'
+        assert 'fee_details' in result
+        assert '赎回费率' in result['fee_details']
+        assert '管理费率' in result['fee_details']
+        assert result['fee_details']['管理费率'] == '1.50%'
+
+
+class TestGetFundLiquidityInfo:
+    """测试流动性信息功能"""
+
+    def test_get_fund_liquidity_info_invalid_code(self):
+        """测试无效的基金代码"""
+        result = fund_tool.get_fund_liquidity_info('123')
+        assert result['status'] == 'error'
+
+    @patch('fund_tool_akshare.ak.fund_overview_em')
+    def test_get_fund_liquidity_info_success(self, mock_overview):
+        """测试成功获取流动性信息"""
+        # Mock overview
+        mock_overview_data = pd.DataFrame({
+            '申购状态': ['开放申购'],
+            '赎回状态': ['开放赎回']
+        })
+        mock_overview.return_value = mock_overview_data
+
+        # 执行查询
+        result = fund_tool.get_fund_liquidity_info('000001')
+
+        # 验证
+        assert result['status'] == 'success'
+        assert 'liquidity_info' in result
+        assert '申赎时间' in result['liquidity_info']
+        assert '最低申购金额' in result['liquidity_info']
+        assert result['liquidity_info']['申购状态'] == '开放申购'
+
+    @patch('fund_tool_akshare.ak.fund_overview_em')
+    def test_get_fund_liquidity_info_no_status(self, mock_overview):
+        """测试没有申赎状态字段的情况"""
+        mock_overview_data = pd.DataFrame({
+            '基金简称': ['华夏成长混合']
+        })
+        mock_overview.return_value = mock_overview_data
+
+        result = fund_tool.get_fund_liquidity_info('000001')
+
+        # 验证 - 应该使用默认值
+        assert result['status'] == 'success'
+        assert result['liquidity_info']['基金状态'] == '开放'
+        assert result['liquidity_info']['申赎时间'] == 'T+1'

@@ -190,6 +190,173 @@ def refresh_fund_cache() -> dict:
             "error": f"刷新失败: {str(e)}"
         }
 
+# === 新增工具：基金经理、持仓、配置、费用、流动性 ===
+
+@mcp.tool()
+def get_fund_manager_details(code: str) -> dict:
+    """
+    获取基金经理深度信息
+
+    Args:
+        code: 6位基金代码
+
+    Returns:
+        基金经理详细信息，包括：
+        - 姓名、所属公司
+        - 累计从业时间
+        - 现任基金资产总规模
+        - 现任基金最佳回报
+        - 管理的其他基金
+    """
+    logger.info(f"👤 查询基金经理详情: {code}")
+
+    result = fund_tool.get_fund_manager_details(code)
+
+    if result.get('status') == 'error':
+        return {
+            "success": False,
+            "error": result.get('message')
+        }
+
+    return {
+        "success": True,
+        "managers": result.get('managers', []),
+        "manager_count": result.get('manager_count', 0)
+    }
+
+@mcp.tool()
+def get_fund_holdings_analysis(code: str, periods: int = 4) -> dict:
+    """
+    获取持仓动态分析
+
+    Args:
+        code: 6位基金代码
+        periods: 分析最近几个季度，默认4
+
+    Returns:
+        持仓动态分析数据，包括：
+        - 持仓集中度（前10大持仓占比）
+        - 持仓变化趋势（按季度）
+        - 最新重仓股列表
+    """
+    logger.info(f"📊 分析基金持仓动态: {code}")
+
+    result = fund_tool.get_fund_holdings_analysis(code, periods)
+
+    if result.get('status') == 'error':
+        return {
+            "success": False,
+            "error": result.get('message')
+        }
+
+    return {
+        "success": True,
+        "code": code,
+        "concentration": result.get('concentration', {}),
+        "holdings_change_by_quarter": result.get('holdings_change_by_quarter', {}),
+        "latest_top_holdings": result.get('latest_top_holdings', [])
+    }
+
+@mcp.tool()
+def get_fund_asset_allocation(code: str, date: str = "2024") -> dict:
+    """
+    获取资产配置结构
+
+    Args:
+        code: 6位基金代码
+        date: 年份，默认2024
+
+    Returns:
+        资产配置数据，包括：
+        - 投资风格（成长/价值/平衡）
+        - 行业配置分布
+        - 股票持仓样本
+        - 债券持仓样本
+    """
+    logger.info(f"🎯 查询基金资产配置: {code}")
+
+    result = fund_tool.get_fund_asset_allocation(code, date)
+
+    if result.get('status') == 'error':
+        return {
+            "success": False,
+            "error": result.get('message')
+        }
+
+    return {
+        "success": True,
+        "code": code,
+        "date": date,
+        "investment_style": result.get('investment_style', ''),
+        "industry_allocation": result.get('industry_allocation', []),
+        "stock_holdings_sample": result.get('stock_holdings_sample', []),
+        "bond_holdings_sample": result.get('bond_holdings_sample', [])
+    }
+
+@mcp.tool()
+def get_fund_fee_details(code: str) -> dict:
+    """
+    获取费用明细
+
+    Args:
+        code: 6位基金代码
+
+    Returns:
+        费用明细，包括：
+        - 认购费率
+        - 申购费率
+        - 赎回费率（分档）
+        - 管理费率
+        - 托管费率
+    """
+    logger.info(f"💰 查询基金费用明细: {code}")
+
+    result = fund_tool.get_fund_fee_details(code)
+
+    if result.get('status') == 'error':
+        return {
+            "success": False,
+            "error": result.get('message')
+        }
+
+    return {
+        "success": True,
+        "code": code,
+        "fee_details": result.get('fee_details', {})
+    }
+
+@mcp.tool()
+def get_fund_liquidity_info(code: str) -> dict:
+    """
+    获取流动性信息
+
+    Args:
+        code: 6位基金代码
+
+    Returns:
+        流动性信息，包括：
+        - 申赎状态（开放/暂停）
+        - 申赎时间（T+N）
+        - 最低申购金额
+        - 申购确认时间
+        - 赎回到账时间
+    """
+    logger.info(f"💧 查询基金流动性信息: {code}")
+
+    result = fund_tool.get_fund_liquidity_info(code)
+
+    if result.get('status') == 'error':
+        return {
+            "success": False,
+            "error": result.get('message')
+        }
+
+    return {
+        "success": True,
+        "code": code,
+        "liquidity_info": result.get('liquidity_info', {})
+    }
+
 # === MCP 资源定义（可选） ===
 
 @mcp.resource("fund://list")
@@ -255,6 +422,11 @@ if __name__ == "__main__":
     logger.info("  • get_fund_details - 获取基金详情")
     logger.info("  • get_fund_rankings - 获取排行榜")
     logger.info("  • get_fund_rating - 获取基金评级")
+    logger.info("  • get_fund_manager_details - 获取基金经理详情")
+    logger.info("  • get_fund_holdings_analysis - 获取持仓动态分析")
+    logger.info("  • get_fund_asset_allocation - 获取资产配置")
+    logger.info("  • get_fund_fee_details - 获取费用明细")
+    logger.info("  • get_fund_liquidity_info - 获取流动性信息")
     logger.info("  • refresh_fund_cache - 刷新缓存")
     logger.info("")
     logger.info("📦 可用资源:")
