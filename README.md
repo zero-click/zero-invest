@@ -234,8 +234,12 @@ python fund_mcp_server.py
 # 搜索基金
 python fund_tool_akshare.py search "华夏"
 
-# 查询详情
+# 查询详情（基本信息）
 python fund_tool_akshare.py query 000001
+
+# 查询完整详情（包含所有专业分析）⭐ 推荐
+python fund_tool_akshare.py query 000001 --detail
+python fund_tool_akshare.py query 000001 -d
 
 # 查看排行榜
 python fund_tool_akshare.py ranking --type 股票型 --top 10
@@ -245,6 +249,8 @@ python fund_tool_akshare.py rating 000001
 ```
 
 ### 专业分析命令
+
+如果只需要特定维度的分析，可以使用单独的命令：
 
 ```bash
 # 基金经理详情

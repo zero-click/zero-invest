@@ -51,6 +51,8 @@ python fund_tool_akshare.py search "混合" --all
 
 获取基金的完整详细信息。
 
+#### 基本模式
+
 ```bash
 python fund_tool_akshare.py query 000001
 ```
@@ -62,6 +64,29 @@ python fund_tool_akshare.py query 000001
 - 业绩表现
 - 风险指标
 - 十大重仓股
+
+#### 完整详情模式 ⭐ 推荐
+
+使用 `--detail` 或 `-d` 选项获取基金的完整分析报告，包含所有专业分析功能：
+
+```bash
+python fund_tool_akshare.py query 000001 --detail
+python fund_tool_akshare.py query 000001 -d
+```
+
+**输出包含所有信息**：
+1. **基本信息** - 同上
+2. **基金经理深度信息** - 从业时间、管理规模、最佳回报
+3. **持仓动态分析** - 持仓集中度、持仓变化趋势
+4. **资产配置结构** - 投资风格、行业配置、股债分布
+5. **费用明细** - 所有费率详情
+6. **流动性信息** - 申赎规则、交易时间
+7. **基金评级** - 第三方机构评级（如有）
+
+**适用场景**：
+- 需要全面了解某只基金时
+- 做投资决策前的深度研究
+- 基金对比分析
 
 ---
 
@@ -241,26 +266,55 @@ python fund_tool_akshare.py update
 
 ## 使用技巧
 
-### 组合查询
+### 快速获取完整分析
+
+最简单的方式是使用 `--detail` 选项一次性获取所有信息：
 
 ```bash
-# 1. 搜索基金
-python fund_tool_akshare.py search "华夏"
+# 一次性获取基金的所有分析信息
+python fund_tool_akshare.py query 000001 --detail
+```
 
-# 2. 查看详情
-python fund_tool_akshare.py query 000001
+这等价于依次执行以下所有命令：
+```bash
+python fund_tool_akshare.py query 000001          # 基本信息
+python fund_tool_akshare.py manager 000001        # 基金经理
+python fund_tool_akshare.py holdings 000001       # 持仓分析
+python fund_tool_akshare.py allocation 000001     # 资产配置
+python fund_tool_akshare.py fee 000001            # 费用明细
+python fund_tool_akshare.py liquidity 000001      # 流动性
+python fund_tool_akshare.py rating 000001         # 评级
+```
 
-# 3. 查看基金经理
+### 分步查询（针对特定需求）
+
+如果只需要特定信息，可以使用单独的命令：
+
+```bash
+# 只查看基金经理
 python fund_tool_akshare.py manager 000001
 
-# 4. 分析持仓
-python fund_tool_akshare.py holdings 000001
+# 只分析持仓
+python fund_tool_akshare.py holdings 000001 -p 2
 
-# 5. 查看费用
+# 只查看费用
 python fund_tool_akshare.py fee 000001
+```
 
-# 6. 查看流动性
-python fund_tool_akshare.py liquidity 000001
+### 组合查询流程
+
+如果需要多只基金的对比分析：
+
+```bash
+# 1. 先搜索感兴趣的基金
+python fund_tool_akshare.py search "科技" > tech_funds.txt
+
+# 2. 对每只基金进行完整分析
+for code in 000001 000002 110022; do
+    echo "===== 基金 $code 分析报告 =====" >> comparison.txt
+    python fund_tool_akshare.py query $code --detail >> comparison.txt
+    echo "" >> comparison.txt
+done
 ```
 
 ### 输出重定向
@@ -269,17 +323,28 @@ python fund_tool_akshare.py liquidity 000001
 # 保存到文件
 python fund_tool_akshare.py query 000001 > fund_000001.txt
 
+# 保存完整分析报告
+python fund_tool_akshare.py query 000001 --detail > fund_000001_full.txt
+
 # 同时输出和保存
-python fund_tool_akshare.py query 000001 | tee fund_000001.txt
+python fund_tool_akshare.py query 000001 --detail | tee fund_000001.txt
 ```
 
 ### 批量处理
 
 ```bash
-# 使用脚本批量查询
+# 批量查询多只基金的基本信息
 for code in 000001 000002 110022; do
-    echo "查询 $code"
+    echo "===== $code ====="
     python fund_tool_akshare.py query $code
+    echo ""
+done
+
+# 批量生成完整分析报告
+for code in 000001 000002 110022; do
+    echo "===== $code 完整分析 ====="
+    python fund_tool_akshare.py query $code --detail
+    echo ""
 done
 ```
 
@@ -289,24 +354,29 @@ done
 
 ### Q: 如何获取特定基金的完整分析报告？
 
+**推荐方式**：使用 `--detail` 选项
 ```bash
-# 使用多个命令组合
-python fund_tool_akshare.py query 000001
-python fund_tool_akshare.py manager 000001
-python fund_tool_akshare.py holdings 000001
-python fund_tool_akshare.py allocation 000001
-python fund_tool_akshare.py fee 000001
-python fund_tool_akshare.py liquidity 000001
+python fund_tool_akshare.py query 000001 --detail
 ```
 
-或者使用演示脚本：
+这将一次性显示所有7个模块的分析信息，包括：
+- 基本信息、基金经理、持仓分析
+- 资产配置、费用明细、流动性、评级
+
+如果只需要部分信息，也可以使用单独的命令：
 ```bash
-python demo_new_features.py 000001
+python fund_tool_akshare.py manager 000001    # 只看基金经理
+python fund_tool_akshare.py holdings 000001   # 只看持仓分析
+# ... 等等
 ```
 
 ### Q: 基金代码格式要求？
 
 必须是6位数字，如：000001、110022、163406
+
+### Q: --detail 模式需要多长时间？
+
+取决于网络速度，通常需要30-60秒来获取所有分析数据。
 
 ### Q: 数据更新频率？
 

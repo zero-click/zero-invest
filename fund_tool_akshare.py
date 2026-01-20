@@ -971,8 +971,12 @@ def main():
   1. 搜索基金:
      python fund_tool_akshare.py search "华夏"
 
-  2. 查询基金详情:
+  2. 查询基金详情（基本信息）:
      python fund_tool_akshare.py query 000001
+
+  2.1 查询基金完整详情（包含所有分析）:
+     python fund_tool_akshare.py query 000001 --detail
+     python fund_tool_akshare.py query 000001 -d
 
   3. 查看排行榜:
      python fund_tool_akshare.py ranking --type 股票型 --top 10
@@ -1015,6 +1019,8 @@ def main():
     # === query 命令 ===
     query_parser = subparsers.add_parser('query', help='查询基金详细信息')
     query_parser.add_argument('code', type=str, help='6位基金代码')
+    query_parser.add_argument('--detail', '-d', action='store_true',
+                             help='显示完整详情（包括基金经理、持仓、配置、费用、流动性等）')
 
     # === ranking 命令 ===
     ranking_parser = subparsers.add_parser('ranking', help='查看基金排行榜')
@@ -1092,8 +1098,76 @@ def main():
         print(f"📊 查询基金: {args.code}")
         print()
 
-        details = query_fund_details(args.code)
-        print_fund_details(details)
+        if args.detail:
+            # 完整详情模式：调用所有查询函数
+            print("=" * 70)
+            print("  📋 基金完整分析报告")
+            print("=" * 70)
+            print()
+
+            # 1. 基本信息
+            details = query_fund_details(args.code)
+            print_fund_details(details)
+
+            # 2. 基金经理详情
+            print("=" * 70)
+            print("  👤 基金经理详情")
+            print("=" * 70)
+            print()
+            manager_result = get_fund_manager_details(args.code)
+            print_manager_details(manager_result)
+
+            # 3. 持仓动态分析
+            print("=" * 70)
+            print("  📊 持仓动态分析")
+            print("=" * 70)
+            print()
+            holdings_result = get_fund_holdings_analysis(args.code, periods=2)
+            print_holdings_analysis(holdings_result)
+
+            # 4. 资产配置结构
+            print("=" * 70)
+            print("  🎯 资产配置结构")
+            print("=" * 70)
+            print()
+            allocation_result = get_fund_asset_allocation(args.code)
+            print_asset_allocation(allocation_result)
+
+            # 5. 费用明细
+            print("=" * 70)
+            print("  💰 费用明细")
+            print("=" * 70)
+            print()
+            fee_result = get_fund_fee_details(args.code)
+            print_fee_details(fee_result)
+
+            # 6. 流动性信息
+            print("=" * 70)
+            print("  💧 流动性信息")
+            print("=" * 70)
+            print()
+            liquidity_result = get_fund_liquidity_info(args.code)
+            print_liquidity_info(liquidity_result)
+
+            # 7. 基金评级（如果有）
+            print("=" * 70)
+            print("  ⭐ 基金评级")
+            print("=" * 70)
+            print()
+            rating_result = get_fund_rating(args.code)
+            if rating_result.get('status') == 'success':
+                print_rating(rating_result.get('ratings'))
+            else:
+                print(f"  ℹ️  {rating_result.get('message', '暂无评级数据')}")
+
+            print()
+            print("=" * 70)
+            print("  ✅ 分析报告完成")
+            print("=" * 70)
+        else:
+            # 标准模式：只显示基本信息
+            details = query_fund_details(args.code)
+            print_fund_details(details)
 
     elif args.command == 'ranking':
         print_banner()
