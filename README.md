@@ -40,6 +40,13 @@ pip install -r requirements.txt
 python fund_mcp_server.py
 ```
 
+服务启动后访问 `http://localhost:8000/mcp`，或用 MCP Inspector 调试：
+
+```bash
+npx -y @modelcontextprotocol/inspector
+# 在 Inspector 中连接到: http://localhost:8000/mcp
+```
+
 ### 3. 配置 Claude Desktop
 
 编辑 `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -281,7 +288,6 @@ ttjj-fund/
 ├── test_fund_tool.py      # 基金工具测试
 ├── tests/
 │   └── test_index_valuation.py  # 指数估值测试
-├── QUICKSTART.md          # 快速指南
 ├── CLI_GUIDE.md           # 命令行使用指南
 └── README.md              # 本文档
 ```
@@ -305,9 +311,23 @@ pytest test_fund_tool.py tests/test_index_valuation.py --cov=fund_tool_akshare -
 
 测试覆盖：48个测试用例，覆盖基金工具全部功能及指数估值模块。
 
+## 🔧 故障排除
+
+**SSL 证书错误**：雪球网数据接口偶发 SSL 错误，不影响核心功能（东方财富数据源正常）。
+
+**依赖安装失败**：
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+**虚拟环境未激活**：
+```bash
+source .venv/bin/activate
+```
+
 ## 📚 更多文档
 
-- [QUICKSTART.md](QUICKSTART.md) - 快速开始指南
 - [CLI_GUIDE.md](CLI_GUIDE.md) - 命令行完整使用指南
 
 ## 📖 参考资料
