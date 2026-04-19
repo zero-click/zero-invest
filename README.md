@@ -284,8 +284,9 @@ ttjj-fund/
 ├── requirements.txt        # 依赖列表
 ├── start_mcp.sh            # 启动脚本
 ├── pytest.ini             # 测试配置
-├── test_fund_tool.py      # 基金工具测试
 ├── tests/
+│   ├── conftest.py
+│   ├── test_fund_tool.py        # 基金工具测试
 │   └── test_index_valuation.py  # 指数估值测试
 └── README.md              # 本文档
 ```
@@ -294,7 +295,7 @@ ttjj-fund/
 
 ```bash
 # 运行所有测试
-pytest test_fund_tool.py tests/test_index_valuation.py -v
+pytest tests/ -v
 
 # 运行特定功能测试
 pytest test_fund_tool.py::TestGetFundManagerDetails -v
@@ -304,7 +305,7 @@ pytest test_fund_tool.py::TestGetFundFeeDetails -v
 pytest test_fund_tool.py::TestGetFundLiquidityInfo -v
 
 # 生成覆盖率报告
-pytest test_fund_tool.py tests/test_index_valuation.py --cov=fund_tool_akshare --cov-report=html
+pytest tests/ --cov=fund_tool_akshare --cov-report=html
 ```
 
 测试覆盖：48个测试用例，覆盖基金工具全部功能及指数估值模块。
