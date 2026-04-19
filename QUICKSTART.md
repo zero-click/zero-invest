@@ -78,33 +78,20 @@ npx -y @modelcontextprotocol/inspector
 {
   "mcpServers": {
     "fund-info": {
-      "command": "/Users/woosleyxu/code/ttjj-fund/.venv/bin/python",
-      "args": ["/Users/woosleyxu/code/ttjj-fund/fund_mcp_server.py"],
-      "env": {
-        "MCP_TRANSPORT": "stdio"
-      }
+      "command": "/path/to/ttjj-fund/.venv/bin/python",
+      "args": ["/path/to/ttjj-fund/fund_mcp_server.py"]
     }
   }
 }
 ```
 
-重启 Claude Desktop 即可使用。
+将 `/path/to/ttjj-fund` 替换为实际路径，重启 Claude Desktop 即可使用。
 
 ## 📝 常用命令
 
-### 直接运行测试脚本
+### 直接运行测试
 ```bash
-.venv/bin/python3 fund_tool_akshare.py
-```
-
-### 启动 FastAPI 服务（旧版）
-```bash
-.venv/bin/python3 fund_server_akshare.py
-```
-
-### 查看日志
-```bash
-tail -f fund_service.log
+pytest test_fund_tool.py tests/test_index_valuation.py -v
 ```
 
 ## 🎯 示例对话（Claude Desktop）
@@ -142,4 +129,4 @@ source .venv/bin/activate
 
 ## 📚 更多信息
 
-查看完整文档: [README_MCP.md](README_MCP.md)
+查看完整文档: [README.md](README.md)

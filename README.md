@@ -48,17 +48,14 @@ python fund_mcp_server.py
 {
   "mcpServers": {
     "fund-info": {
-      "command": "python",
-      "args": ["/Users/woosleyxu/code/ttjj-fund/fund_mcp_server.py"],
-      "env": {
-        "MCP_TRANSPORT": "stdio"
-      }
+      "command": "/path/to/ttjj-fund/.venv/bin/python",
+      "args": ["/path/to/ttjj-fund/fund_mcp_server.py"]
     }
   }
 }
 ```
 
-重启 Claude Desktop 即可使用。
+将 `/path/to/ttjj-fund` 替换为实际路径，重启 Claude Desktop 即可使用。
 
 ## 🛠️ 可用工具
 
@@ -277,11 +274,13 @@ python fund_tool_akshare.py liquidity 000001
 ttjj-fund/
 ├── fund_tool_akshare.py    # 核心数据获取逻辑 + CLI工具
 ├── fund_mcp_server.py      # MCP 服务器
+├── index_valuation.py      # 指数估值模块（PE/PB历史分位）
 ├── requirements.txt        # 依赖列表
-├── mcp_manifest.json       # MCP 清单
 ├── start_mcp.sh            # 启动脚本
 ├── pytest.ini             # 测试配置
-├── test_fund_tool.py      # 测试文件
+├── test_fund_tool.py      # 基金工具测试
+├── tests/
+│   └── test_index_valuation.py  # 指数估值测试
 ├── QUICKSTART.md          # 快速指南
 ├── CLI_GUIDE.md           # 命令行使用指南
 └── README.md              # 本文档
@@ -291,7 +290,7 @@ ttjj-fund/
 
 ```bash
 # 运行所有测试
-pytest test_fund_tool.py -v
+pytest test_fund_tool.py tests/test_index_valuation.py -v
 
 # 运行特定功能测试
 pytest test_fund_tool.py::TestGetFundManagerDetails -v
@@ -301,16 +300,15 @@ pytest test_fund_tool.py::TestGetFundFeeDetails -v
 pytest test_fund_tool.py::TestGetFundLiquidityInfo -v
 
 # 生成覆盖率报告
-pytest test_fund_tool.py --cov=fund_tool_akshare --cov-report=html
+pytest test_fund_tool.py tests/test_index_valuation.py --cov=fund_tool_akshare --cov-report=html
 ```
 
-测试覆盖：30个测试用例，包括原有功能和新增专业分析功能。
+测试覆盖：48个测试用例，覆盖基金工具全部功能及指数估值模块。
 
 ## 📚 更多文档
 
 - [QUICKSTART.md](QUICKSTART.md) - 快速开始指南
 - [CLI_GUIDE.md](CLI_GUIDE.md) - 命令行完整使用指南
-- [TEST_REPORT.md](TEST_REPORT.md) - 测试报告说明
 
 ## 📖 参考资料
 
@@ -327,6 +325,6 @@ pytest test_fund_tool.py --cov=fund_tool_akshare --cov-report=html
 
 ---
 
-**版本**: v2.1
-**更新日期**: 2026-01-20
+**版本**: v2.2
+**更新日期**: 2026-04-19
 **注意**: 本服务仅供学习和研究使用，不构成投资建议。
