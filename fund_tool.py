@@ -44,7 +44,7 @@ def update_fund_database():
 
     return {"status": "success", "count": len(fund_database), "path": os.path.abspath(FUND_DB_FILE)}
 
-def search_funds(keyword):
+def search_funds(keyword: str):
     """在本地基金数据库中搜索包含关键词的基金"""
     if not os.path.exists(FUND_DB_FILE):
         return {"status": "error", "message": f"本地数据库({FUND_DB_FILE})不存在. 请先运行 'update' 命令来创建数据库."}
@@ -92,7 +92,7 @@ def _calculate_risk_metrics(net_worth_data, risk_free_rate=0.015):
     except Exception:
         return None
 
-def query_fund_details(code):
+def query_fund_details(code: str):
     """查询指定基金代码的详细信息"""
     if not re.fullmatch(r"\d{6}", code):
         return {"status": "error", "message": f"无效的基金代码格式: '{code}' (应为6位数字)"}
