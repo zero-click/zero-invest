@@ -13,8 +13,10 @@ import fund_tool_akshare as fund_tool
 class TestFundList:
     """测试基金列表获取功能"""
 
+    @patch('fund_tool_akshare._load_fund_db_from_disk', return_value=pd.DataFrame())
+    @patch('fund_tool_akshare._save_fund_db_to_disk')
     @patch('fund_tool_akshare.ak.fund_name_em')
-    def test_get_fund_list_success(self, mock_fund_name_em):
+    def test_get_fund_list_success(self, mock_fund_name_em, mock_save, mock_load):
         """测试成功获取基金列表"""
         # Mock 数据
         mock_data = pd.DataFrame({
@@ -39,8 +41,10 @@ class TestFundList:
         assert result.iloc[0]['基金简称'] == '华夏成长混合'
         mock_fund_name_em.assert_called_once()
 
+    @patch('fund_tool_akshare._load_fund_db_from_disk', return_value=pd.DataFrame())
+    @patch('fund_tool_akshare._save_fund_db_to_disk')
     @patch('fund_tool_akshare.ak.fund_name_em')
-    def test_get_fund_list_cached(self, mock_fund_name_em):
+    def test_get_fund_list_cached(self, mock_fund_name_em, mock_save, mock_load):
         """测试缓存功能"""
         mock_data = pd.DataFrame({
             '基金代码': ['000001'],
@@ -55,15 +59,16 @@ class TestFundList:
         fund_tool.get_fund_list.cache_clear()
         result1 = fund_tool.get_fund_list()
 
-        # 第二次调用（应该使用缓存）
+        # 第二次调用（应该使用 lru_cache）
         result2 = fund_tool.get_fund_list()
 
-        # 验证只调用了一次
+        # 验证只调用了一次网络请求
         assert mock_fund_name_em.call_count == 1
         assert len(result1) == len(result2)
 
+    @patch('fund_tool_akshare._load_fund_db_from_disk', return_value=pd.DataFrame())
     @patch('fund_tool_akshare.ak.fund_name_em')
-    def test_get_fund_list_error(self, mock_fund_name_em):
+    def test_get_fund_list_error(self, mock_fund_name_em, mock_load):
         """测试获取失败的情况"""
         mock_fund_name_em.side_effect = Exception("网络错误")
 

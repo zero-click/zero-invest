@@ -164,9 +164,12 @@ def refresh_fund_cache() -> dict:
     """
     logger.info("🔄 正在刷新基金数据缓存...")
 
-    # 清除缓存
+    # 清除内存缓存和磁盘缓存，强制重新从网络加载
     fund_tool.get_fund_list.cache_clear()
     fund_tool.search_funds.cache_clear()
+    import os
+    if os.path.exists(fund_tool.FUND_DB_FILE):
+        os.remove(fund_tool.FUND_DB_FILE)
 
     # 重新加载
     try:

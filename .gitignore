@@ -155,3 +155,4 @@ cython_debug/
 # Temporary files created by the user
 *.html
 *.js
+fund_database.json
