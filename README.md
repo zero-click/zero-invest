@@ -273,7 +273,6 @@ python fund_tool_akshare.py fee 000001
 python fund_tool_akshare.py liquidity 000001
 ```
 
-**完整命令行指南**: 查看 [CLI_GUIDE.md](CLI_GUIDE.md)
 
 ## 📁 项目结构
 
@@ -288,7 +287,6 @@ ttjj-fund/
 ├── test_fund_tool.py      # 基金工具测试
 ├── tests/
 │   └── test_index_valuation.py  # 指数估值测试
-├── CLI_GUIDE.md           # 命令行使用指南
 └── README.md              # 本文档
 ```
 
@@ -328,7 +326,6 @@ source .venv/bin/activate
 
 ## 📚 更多文档
 
-- [CLI_GUIDE.md](CLI_GUIDE.md) - 命令行完整使用指南
 
 ## 📖 参考资料
 
