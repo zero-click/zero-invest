@@ -1,3 +1,5 @@
 mcp
 requests
 numpy
+pandas
+akshare

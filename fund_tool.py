@@ -224,6 +224,14 @@ def main():
 
   3. 查询基金详细信息:
      python %(prog)s query 000001
+
+  4. 查询指数估值 (PE/PB/历史分位):
+     python %(prog)s index 沪深300
+     python %(prog)s index --all
+     python %(prog)s index --csindex 399967
+
+  5. 查询投资组合相关指数估值:
+     python %(prog)s portfolio
 """)
     subparsers = parser.add_subparsers(dest='command', help='可用的命令')
     subparsers.add_parser('update', help='下载并更新本地的基金数据库')
@@ -231,6 +239,14 @@ def main():
     search_parser.add_argument('keyword', type=str, help='要搜索的基金代码、名称或拼音缩写')
     query_parser = subparsers.add_parser('query', help='查询指定基金代码的详细信息')
     query_parser.add_argument('code', type=str, help='要查询的基金代码')
+    
+    # Index valuation commands
+    index_parser = subparsers.add_parser('index', help='查询指数PE/PB估值及历史分位')
+    index_parser.add_argument('name', type=str, nargs='?', default=None, help='指数名称 (如 沪深300, 中证500)')
+    index_parser.add_argument('--all', action='store_true', dest='all_indices', help='查询所有宽基指数')
+    index_parser.add_argument('--csindex', type=str, default=None, help='中证指数代码 (如 399967)')
+    
+    subparsers.add_parser('portfolio', help='查询投资组合相关所有指数估值')
 
     args = parser.parse_args()
     if args.command == 'update':
@@ -265,6 +281,49 @@ def main():
     elif args.command == 'query':
         result = query_fund_details(args.code)
         print(json.dumps(result, ensure_ascii=False, indent=2))
+    elif args.command == 'index':
+        from index_valuation import get_index_pe, get_index_valuation_batch, get_csindex_valuation, LG_INDEX_MAP
+        
+        if args.csindex:
+            result = get_csindex_valuation(args.csindex)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif args.all_indices:
+            result = get_index_valuation_batch(lg_indices=list(LG_INDEX_MAP.keys()))
+            for name, data in result.get("乐咕宽基指数", {}).items():
+                if data.get("status") == "success":
+                    print(f"  {name}: PE={data['PE_TTM']} PB={data['PB']} | 10年分位 PE={data['PE分位_10年']}% PB={data['PB分位_10年']}% | {data['估值等级']}")
+                else:
+                    print(f"  {name}: {data.get('message', '查询失败')}")
+        elif args.name:
+            result = get_index_pe(args.name)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            index_parser.print_help()
+    elif args.command == 'portfolio':
+        from index_valuation import get_portfolio_index_valuation
+        result = get_portfolio_index_valuation()
+        
+        print("=" * 70)
+        print("  宽基指数估值 (乐咕乐股数据)")
+        print("=" * 70)
+        for name, data in result.get("乐咕宽基指数", {}).items():
+            if data.get("status") == "success":
+                print(f"  {name:8s} | 点位:{data['收盘点位']:>8.1f} | PE:{data['PE_TTM']:>6.2f} (10年分位:{data['PE分位_10年']:>5.1f}%) | PB:{data['PB']:>5.2f} (10年分位:{data['PB分位_10年']:>5.1f}%) | {data['估值等级']}")
+            else:
+                print(f"  {name:8s} | {data.get('message', '查询失败')}")
+        
+        print()
+        print("=" * 70)
+        print("  行业指数估值 (中证指数数据)")
+        print("=" * 70)
+        for name, data in result.get("中证行业指数", {}).items():
+            if data.get("status") == "success":
+                pe1 = data.get("市盈率1", "N/A")
+                pe2 = data.get("市盈率2", "N/A")
+                dy = data.get("股息率1", "N/A")
+                print(f"  {name:8s} | 静态PE:{pe1} | 滚动PE:{pe2} | 股息率:{dy}%")
+            else:
+                print(f"  {name:8s} | {data.get('message', '查询失败')}")
     else:
         parser.print_help()
 
