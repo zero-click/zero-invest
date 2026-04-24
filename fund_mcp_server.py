@@ -360,6 +360,457 @@ def get_fund_liquidity_info(code: str) -> dict:
         "liquidity_info": result.get('liquidity_info', {})
     }
 
+# === 新增工具：行业估值热力图 ===
+
+@mcp.tool()
+def get_industry_valuation_heatmap(
+    category: str = "全部",
+    sort_by: str = "pe",
+    limit: int = 20,
+    include_suggestions: bool = False
+) -> dict:
+    """
+    获取行业估值热力图
+
+    Args:
+        category: 行业分类筛选（全部/宽基/科技/成长/消费/医药/资源/金融/军工/红利）
+        sort_by: 排序方式（pe/pb/dividend/valuation）
+        limit: 返回结果数量限制，默认20
+        include_suggestions: 是否包含投资建议，默认False
+
+    Returns:
+        行业估值热力图数据，包括：
+        - 行业列表（名称、分类、PE、PB、股息率、估值等级）
+        - 统计摘要
+        - 投资建议（如果include_suggestions=True）
+    """
+    logger.info(f"📈 获取行业估值热力图 | 分类: {category} | 排序: {sort_by}")
+
+    try:
+        # 导入行业估值模块
+        from industry_valuation import (
+            get_valuation_heatmap,
+            get_investment_suggestions
+        )
+        
+        # 获取热力图数据
+        heatmap_data = get_valuation_heatmap()
+        
+        # 提取所有行业数据
+        all_industries = []
+        for cat, industries in heatmap_data["heatmap"].items():
+            if category != "全部" and cat != category:
+                continue
+                
+            for name, data in industries.items():
+                pe = data.get("滚动PE") or data.get("静态PE")
+                pb = data.get("PB")
+                dy = data.get("股息率")
+                
+                # 估值等级判断
+                if pe is None:
+                    valuation = "N/A"
+                elif pe < 15:
+                    valuation = "低"
+                elif pe < 25:
+                    valuation = "中"
+                elif pe < 40:
+                    valuation = "高"
+                else:
+                    valuation = "极高"
+                
+                all_industries.append({
+                    "行业名称": name,
+                    "行业分类": cat,
+                    "PE": pe,
+                    "PB": pb,
+                    "股息率": dy,
+                    "估值等级": valuation,
+                    "原始数据": data
+                })
+        
+        # 排序
+        if sort_by == "pe":
+            all_industries.sort(key=lambda x: x["PE"] if x["PE"] is not None else float('inf'))
+        elif sort_by == "pb":
+            all_industries.sort(key=lambda x: x["PB"] if x["PB"] is not None else float('inf'))
+        elif sort_by == "dividend":
+            all_industries.sort(key=lambda x: x["股息率"] if x["股息率"] is not None else -float('inf'), reverse=True)
+        elif sort_by == "valuation":
+            # 估值等级排序：低->中->高->极高
+            valuation_order = {"低": 1, "中": 2, "高": 3, "极高": 4, "N/A": 5}
+            all_industries.sort(key=lambda x: valuation_order.get(x["估值等级"], 5))
+        
+        # 限制数量
+        all_industries = all_industries[:limit]
+        
+        # 准备返回结果
+        result = {
+            "success": True,
+            "category": category,
+            "sort_by": sort_by,
+            "total_industries": len(all_industries),
+            "industries": all_industries,
+            "summary": heatmap_data["summary"]
+        }
+        
+        # 添加投资建议
+        if include_suggestions:
+            suggestions = get_investment_suggestions(heatmap_data)
+            result["investment_suggestions"] = suggestions
+        
+        logger.info(f"✅ 成功获取 {len(all_industries)} 个行业的估值数据")
+        return result
+        
+    except ImportError as e:
+        logger.error(f"❌ 导入行业估值模块失败: {e}")
+        return {
+            "success": False,
+            "error": f"导入行业估值模块失败: {str(e)}"
+        }
+    except Exception as e:
+        logger.error(f"❌ 获取行业估值热力图失败: {e}")
+        return {
+            "success": False,
+            "error": f"获取行业估值热力图失败: {str(e)}"
+        }
+
+# === 新增工具：北向/南向资金流分析 ===
+
+@mcp.tool()
+def get_capital_flow_industry(
+    direction: str = "北向",
+    limit: int = 20,
+) -> dict:
+    """
+    获取北向/南向资金的行业分布
+
+    Args:
+        direction: "北向" 或 "南向"，默认北向
+        limit: 返回行业数量限制，默认20
+
+    Returns:
+        行业分布数据，包括：
+        - 各行业持股市值、个股数、占比
+        - 总体汇总统计
+    """
+    logger.info(f"📊 获取{direction}资金行业分布")
+
+    try:
+        from capital_flow_analysis import get_industry_aggregation
+
+        result = get_industry_aggregation(direction)
+
+        if not result.get("success"):
+            return {
+                "success": False,
+                "error": result.get("message", "获取失败"),
+            }
+
+        # 限制数量
+        result["industries"] = result["industries"][:limit]
+
+        logger.info(f"✅ {direction}资金行业分布: {len(result['industries'])} 个行业")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ 获取{direction}资金行业分布失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_capital_flow_top_stocks(
+    direction: str = "北向",
+    metric: str = "持股市值",
+    top_n: int = 20,
+) -> dict:
+    """
+    获取北向/南向资金 Top N 个股
+
+    Args:
+        direction: "北向" 或 "南向"，默认北向
+        metric: 排序字段（持股市值/持股数量变化/持股市值变化）
+        top_n: 返回数量，默认20
+
+    Returns:
+        Top N 个股明细，包括代码、名称、行业、持股数量/市值等
+    """
+    logger.info(f"🏆 获取{direction}资金 Top{top_n} 个股 (按{metric})")
+
+    try:
+        from capital_flow_analysis import get_top_holdings
+
+        result = get_top_holdings(direction, metric, top_n)
+
+        if not result.get("success"):
+            return {"success": False, "error": result.get("message", "获取失败")}
+
+        logger.info(f"✅ 获取{direction} Top{top_n}个股成功")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ 获取 Top 个股失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_capital_flow_history(
+    symbol: str = "沪股通",
+    days: int = 30,
+) -> dict:
+    """
+    获取沪股通/深股通历史资金流
+
+    Args:
+        symbol: "沪股通" 或 "深股通"
+        days: 最近几天数据，默认30
+
+    Returns:
+        日度资金流历史数据，包括每日净买入、累计净买入等
+    """
+    logger.info(f"📈 获取{symbol}近{days}日资金流")
+
+    try:
+        from capital_flow_analysis import get_historical_flow
+
+        data = get_historical_flow(symbol, days)
+
+        if not data:
+            return {"success": False, "error": f"{symbol}历史数据不可用"}
+
+        logger.info(f"✅ 获取{symbol} {len(data)}天历史数据")
+        return {
+            "success": True,
+            "symbol": symbol,
+            "days": len(data),
+            "data": data,
+        }
+
+    except Exception as e:
+        logger.error(f"❌ 获取历史资金流失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_capital_flow_summary() -> dict:
+    """
+    获取当日南北向资金净流入汇总
+
+    Returns:
+        当日资金流汇总数据
+    """
+    logger.info("📊 获取当日资金流汇总")
+
+    try:
+        from capital_flow_analysis import get_fund_flow_summary
+
+        result = get_fund_flow_summary()
+
+        if not result.get("success"):
+            return {"success": False, "error": result.get("message", "获取失败")}
+
+        logger.info("✅ 获取当日资金流汇总成功")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ 获取资金流汇总失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_capital_flow_full_report() -> dict:
+    """
+    获取完整的资金流分析报告（综合北向/南向/历史/汇总）
+
+    Returns:
+        完整资金流分析报告，包括：
+        - 北向行业分布 + Top个股
+        - 南向行业分布 + Top个股
+        - 沪股通/深股通近30日资金流
+        - 当日汇总
+    """
+    logger.info("📋 生成完整资金流分析报告")
+
+    try:
+        from capital_flow_analysis import get_capital_flow_report
+
+        report = get_capital_flow_report()
+
+        logger.info("✅ 完整资金流分析报告生成完毕")
+        return {
+            "success": True,
+            "report": report,
+        }
+
+    except Exception as e:
+        logger.error(f"❌ 生成报告失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_market_fund_flow(days: int = 30) -> dict:
+    """
+    获取大盘主力资金流数据（内资主力/散户博弈方向）
+
+    包含：主力净流入、超大单、大单、中单、小单的每日净流入/净占比，
+    以及最近5日趋势判断（主力吸筹/出货、散户博弈方向）。
+
+    数据源: 东方财富 stock_market_fund_flow (每日更新，约120天历史)
+
+    Args:
+        days: 返回最近 N 天数据（默认30天，最大约120天）
+
+    Returns:
+        大盘主力资金流数据，包括：
+        - data: 每日资金流明细（日期、主力/超大单/大单/中单/小单净流入）
+        - summary: 趋势判断（连续流入/流出、主力vs散户博弈、操作信号）
+    """
+    logger.info(f"📈 获取大盘主力资金流 (最近{days}天)")
+
+    try:
+        from capital_flow_analysis import get_market_fund_flow as _get_mff
+
+        result = _get_mff(days=days)
+
+        if result.get("success"):
+            summary = result.get("summary", {})
+            logger.info(
+                f"✅ 大盘资金流: {result.get('days', 0)}天 | "
+                f"趋势={summary.get('main_force_trend', '-')} | "
+                f"信号={summary.get('signal', '-')}"
+            )
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ 获取大盘资金流失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+# === 投资组合分析工具 ===
+
+@mcp.tool()
+def get_portfolio_deviation() -> dict:
+    """
+    获取四账户偏离度分析。
+
+    读取投资组合Excel持仓数据，计算安全账户/稳定现金流/成长账户/机会账户
+    的实际占比与目标占比的偏离度。使用相对偏离度（偏离/目标）判断状态。
+
+    数据源: ~/code/skyebee/Investment/current.xlsx
+
+    Returns:
+        四账户偏离度数据，包括：
+        - accounts: 每个账户的实际/目标占比、绝对偏离、相对偏离、状态
+        - alerts: 告警列表（紧急/关注）
+        - total: 总资产
+    """
+    logger.info("📊 获取四账户偏离度分析")
+
+    try:
+        from portfolio_analysis import read_portfolio_from_excel, calculate_deviation
+
+        portfolio = read_portfolio_from_excel()
+        deviation = calculate_deviation(portfolio)
+
+        alert_count = len(deviation.get("alerts", []))
+        logger.info(f"✅ 偏离度分析完成: 总资产¥{deviation['total']:,.0f}, {alert_count}条告警")
+        return deviation
+
+    except Exception as e:
+        logger.error(f"❌ 偏离度分析失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_us_index_valuation() -> dict:
+    """
+    获取标普500估值数据（含PE/PB历史分位）。
+
+    从 multpl.com 获取标普500的月度PE/PB/股息率历史数据，
+    计算10年/5年/3年历史分位，判断估值等级。
+
+    数据源: multpl.com（需代理访问）
+
+    Returns:
+        标普500估值数据，包括：
+        - PE (TTM) + 10/5/3年分位 + 估值等级
+        - PB + 10/5年分位 + 估值等级
+        - 股息率 + 分位
+    """
+    logger.info("🇺🇸 获取标普500估值数据")
+
+    try:
+        from portfolio_analysis import get_us_index_valuation as _get_us
+
+        result = _get_us()
+
+        if result.get("status") == "ok":
+            sp = result.get("标普500", {})
+            logger.info(
+                f"✅ 标普500: PE={sp.get('PE', 'N/A')} "
+                f"(10年分位={sp.get('PE分位_10年', 'N/A')}% {sp.get('估值等级_PE', '')})"
+            )
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ 标普500估值获取失败: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def get_hk_index_valuation() -> dict:
+    """
+    获取港股/中概相关指数估值。
+
+    通过中证指数官网获取中国互联网、内地民营、沪港深通金融等
+    港股相关指数的PE、滚动PE、股息率。
+
+    数据源: 中证指数官网（akshare）
+
+    Returns:
+        港股/中概指数估值数据
+    """
+    logger.info("🇭🇰 获取港股/中概指数估值")
+
+    try:
+        from portfolio_analysis import get_hk_index_valuation as _get_hk
+
+        result = _get_hk()
+        logger.info(f"✅ 港股估值获取完成")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ 港股估值获取失败: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def get_portfolio_analysis() -> dict:
+    """
+    投资组合综合分析：偏离度 + 美股估值 + 港股估值。
+
+    一次性获取所有投资组合相关的分析数据：
+    1. 四账户偏离度（安全/稳定/成长/机会的实际vs目标占比）
+    2. 标普500估值（PE/PB/股息率 + 历史分位）
+    3. 港股/中概指数估值（中国互联网等）
+
+    Returns:
+        综合分析报告，包括 deviation、us_valuation、hk_valuation、summary
+    """
+    logger.info("📋 获取投资组合综合分析")
+
+    try:
+        from portfolio_analysis import get_portfolio_analysis as _get_full
+
+        result = _get_full()
+        logger.info(f"✅ 综合分析完成")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ 综合分析失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
 # === MCP 资源定义（可选） ===
 
 @mcp.resource("fund://list")
@@ -430,6 +881,17 @@ if __name__ == "__main__":
     logger.info("  • get_fund_asset_allocation - 获取资产配置")
     logger.info("  • get_fund_fee_details - 获取费用明细")
     logger.info("  • get_fund_liquidity_info - 获取流动性信息")
+    logger.info("  • get_industry_valuation_heatmap - 获取行业估值热力图")
+    logger.info("  • get_capital_flow_industry - 北向/南向资金行业分布")
+    logger.info("  • get_capital_flow_top_stocks - 北向/南向 Top个股")
+    logger.info("  • get_capital_flow_history - 沪深股通历史资金流")
+    logger.info("  • get_capital_flow_summary - 当日资金流汇总")
+    logger.info("  • get_capital_flow_full_report - 完整资金流分析报告")
+    logger.info("  • get_market_fund_flow - 大盘主力资金流（主力/散户博弈）")
+    logger.info("  • get_portfolio_deviation - 四账户偏离度分析")
+    logger.info("  • get_us_index_valuation - 标普500估值（PE/PB/股息率+历史分位）")
+    logger.info("  • get_hk_index_valuation - 港股/中概指数估值")
+    logger.info("  • get_portfolio_analysis - 投资组合综合分析")
     logger.info("  • refresh_fund_cache - 刷新缓存")
     logger.info("")
     logger.info("📦 可用资源:")
