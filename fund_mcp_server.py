@@ -7,7 +7,12 @@
 from mcp.server.fastmcp import FastMCP
 import logging
 from typing import Optional
-import fund_tool_akshare as fund_tool
+import sys
+import os
+
+# 添加 src 到 Python 路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+import fund_tools as fund_tool
 
 # === 配置日志 ===
 logging.basicConfig(

@@ -1,26 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-基于 akshare 的基金信息查询工具（向后兼容包装器）
-
-⚠️  此文件用于向后兼容，新代码请使用 src/fund_tools/
-
-迁移指南：
-- 旧: import fund_tool_akshare as fund_tool
-- 新: from src.fund_tools import *
+基金工具包
+基于 akshare 的基金信息查询工具
 """
 
-import sys
-import os
-
-# 添加 src 到 Python 路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
-# 从新模块导出所有公共API
-from fund_tools import (
-    # Cache
-    get_fund_list,
-    FUND_DB_FILE,
-    # Core functions
+from .cache import get_fund_list, FUND_DB_FILE
+from .core import (
     search_funds,
     query_fund_details,
     get_fund_rankings,
@@ -32,10 +17,11 @@ from fund_tools import (
     get_fund_liquidity_info,
 )
 
-# 导出所有符号，保持向后兼容
 __all__ = [
+    # Cache
     "get_fund_list",
     "FUND_DB_FILE",
+    # Core
     "search_funds",
     "query_fund_details",
     "get_fund_rankings",
@@ -46,3 +32,5 @@ __all__ = [
     "get_fund_fee_details",
     "get_fund_liquidity_info",
 ]
+
+__version__ = "2.0.0"
