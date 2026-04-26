@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import pandas as pd
+from datetime import datetime
 
 # 添加 src 到 Python 路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -17,22 +18,29 @@ from fund_tools import (
     query_fund_details,
     get_fund_rankings,
     get_fund_rating,
+    get_fund_risk_metrics,
+    get_fund_performance,
+    get_fund_top_holdings,
     get_fund_manager_details,
     get_fund_holdings_analysis,
     get_fund_asset_allocation,
+    get_fund_portfolio_analysis,
     get_fund_fee_details,
     get_fund_liquidity_info,
     get_fund_list,
     FUND_DB_FILE,
 )
 
-# 配置日志
-logging.basicConfig(
-    level=logging.WARNING,  # 只显示警告和错误
-    format='%(message)s'
-)
-
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# 工具函数
+# ============================================================================
+
+def get_current_year() -> str:
+    """获取当前年份作为字符串"""
+    return str(datetime.now().year)
 
 
 # ============================================================================
@@ -372,6 +380,114 @@ def print_liquidity_info(result: dict):
     print()
 
 
+def print_performance(performance: dict):
+    """打印基金业绩"""
+    if not performance:
+        print("  ℹ️  暂无业绩数据")
+        return
+
+    print("  📈 基金业绩")
+    print("  " + "-" * 60)
+    for period, return_rate in performance.items():
+        print(f"    {period}: {return_rate}")
+    print()
+
+
+def print_risk_metrics(risk_metrics: dict):
+    """打印风险指标"""
+    if not risk_metrics:
+        print("  ℹ️  暂无风险指标数据")
+        return
+
+    print("  ⚠️  风险指标")
+    print("  " + "-" * 60)
+    for key, value in risk_metrics.items():
+        print(f"    {key}: {value}")
+    print()
+
+
+def print_top_holdings(holdings: list):
+    """打印十大重仓股"""
+    if not holdings:
+        print("  ℹ️  暂无持仓数据")
+        return
+
+    print("  💼 十大重仓股")
+    print("  " + "-" * 60)
+    for i, holding in enumerate(holdings, 1):
+        if isinstance(holding, dict):
+            name = holding.get('股票名称', 'N/A')
+            code = holding.get('股票代码', '')
+            pct = holding.get('占净值比例', 0)
+            if isinstance(pct, (int, float)):
+                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct:.2f}%")
+            else:
+                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct}")
+        else:
+            print(f"    {i}. {holding}")
+    print()
+
+
+def print_portfolio_analysis(result: dict):
+    """打印投资组合完整分析"""
+    if result.get('status') == 'error':
+        print(f"  ❌ {result.get('message')}")
+        return
+
+    # 持仓集中度
+    conc = result.get('concentration', {})
+    if conc:
+        print("  📊 持仓集中度")
+        print("  " + "-" * 60)
+        print(f"    前10大持仓占比: {conc.get('前10大持仓占比', 'N/A')}")
+        print(f"    集中度评估: {conc.get('持仓集中度', 'N/A')}")
+        print()
+
+    # 最新持仓
+    holdings = result.get('latest_top_holdings', [])
+    if holdings:
+        print("  💼 最新前10大持仓")
+        print("  " + "-" * 60)
+        for i, h in enumerate(holdings, 1):
+            name = h.get('股票名称', 'N/A')
+            code = h.get('股票代码', '')
+            pct = h.get('占净值比例', 0)
+            if isinstance(pct, (int, float)):
+                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct:.2f}%")
+            else:
+                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct}")
+        print()
+
+    # 持仓变化
+    changes = result.get('holdings_change_by_quarter', {})
+    if changes:
+        print("  📈 持仓变化趋势")
+        print("  " + "-" * 60)
+        for quarter, stocks in list(changes.items())[:2]:
+            print(f"    {quarter}:")
+            for s in stocks[:5]:
+                print(f"      - {s['股票名称']}: 买入 {s['买入金额']}")
+        print()
+
+    # 行业配置
+    industries = result.get('industry_allocation', [])
+    if industries:
+        print("  🏭 行业配置 (前5大)")
+        print("  " + "-" * 60)
+        for i, ind in enumerate(industries[:5], 1):
+            print(f"    {i}. {ind['行业类别']:<30s} {ind['占净值比例']}")
+        print()
+
+    # 债券持仓
+    bonds = result.get('bond_holdings_sample', [])
+    if bonds:
+        print("  🏛️  债券持仓样本")
+        print("  " + "-" * 60)
+        for b in bonds[:5]:
+            print(f"    - {b['债券名称']}: {b['占净值比例']}")
+        print()
+
+
 # ============================================================================
 # 主函数
 # ============================================================================
@@ -415,12 +531,31 @@ def main():
   9. 流动性信息:
      python cli.py liquidity 000001
 
-  10. 更新本地数据库:
+  10. 查看基金业绩:
+     python cli.py performance 000001
+
+  11. 查看风险指标:
+     python cli.py risk 000001
+
+  12. 查看十大重仓股:
+     python cli.py top-holdings 000001
+
+  13. 查看投资组合完整分析（合并持仓+资产配置）:
+     python cli.py portfolio 000001
+
+  14. 更新本地数据库:
      python cli.py update
+
+  Debug 模式:
+     python cli.py --debug query 000001
 
 项目主页: https://github.com/example/ttjj-fund
         """
     )
+
+    # 全局参数
+    parser.add_argument('--debug', '-D', action='store_true',
+                        help='启用调试模式，显示详细日志')
 
     subparsers = parser.add_subparsers(dest='command', help='可用的命令')
 
@@ -458,8 +593,6 @@ def main():
     # === holdings 命令 ===
     holdings_parser = subparsers.add_parser('holdings', help='持仓动态分析')
     holdings_parser.add_argument('code', type=str, help='6位基金代码')
-    holdings_parser.add_argument('--periods', '-p', type=int, default=4,
-                                help='分析最近几个季度（默认: 4）')
 
     # === allocation 命令 ===
     alloc_parser = subparsers.add_parser('allocation', help='资产配置结构')
@@ -474,6 +607,22 @@ def main():
     # === liquidity 命令 ===
     liq_parser = subparsers.add_parser('liquidity', help='流动性信息')
     liq_parser.add_argument('code', type=str, help='6位基金代码')
+
+    # === performance 命令 ===
+    perf_parser = subparsers.add_parser('performance', help='基金业绩')
+    perf_parser.add_argument('code', type=str, help='6位基金代码')
+
+    # === risk 命令 ===
+    risk_parser = subparsers.add_parser('risk', help='风险指标')
+    risk_parser.add_argument('code', type=str, help='6位基金代码')
+
+    # === top-holdings 命令 ===
+    holdings_parser = subparsers.add_parser('top-holdings', help='十大重仓股')
+    holdings_parser.add_argument('code', type=str, help='6位基金代码')
+
+    # === portfolio 命令 ===
+    portfolio_parser = subparsers.add_parser('portfolio', help='投资组合完整分析')
+    portfolio_parser.add_argument('code', type=str, help='6位基金代码')
 
     # === heatmap 命令 ===
     heatmap_parser = subparsers.add_parser('heatmap', help='行业估值热力图')
@@ -493,6 +642,13 @@ def main():
                                help='输出JSON格式数据')
 
     args = parser.parse_args()
+
+    # 配置日志（在 parse_args 之后，以便根据 --debug 参数设置）
+    log_level = logging.DEBUG if args.debug else logging.WARNING
+    logging.basicConfig(
+        level=log_level,
+        format='%(levelname)s: %(message)s' if args.debug else '%(message)s'
+    )
 
     # 执行对应的命令
     if args.command == 'update':
@@ -534,7 +690,7 @@ def main():
             print()
 
             # 1. 基本信息
-            details = query_fund_details(args.code)
+            details = query_fund_details(args.code, year=get_current_year())
             print_fund_details(details)
 
             # 2. 基金经理详情
@@ -545,23 +701,15 @@ def main():
             manager_result = get_fund_manager_details(args.code)
             print_manager_details(manager_result)
 
-            # 3. 持仓动态分析
+            # 3. 投资组合完整分析（合并了持仓分析和资产配置）
             print("=" * 70)
-            print("  📊 持仓动态分析")
-            print("=" * 70)
-            print()
-            holdings_result = get_fund_holdings_analysis(args.code, periods=2)
-            print_holdings_analysis(holdings_result)
-
-            # 4. 资产配置结构
-            print("=" * 70)
-            print("  🎯 资产配置结构")
+            print("  📊 投资组合完整分析")
             print("=" * 70)
             print()
-            allocation_result = get_fund_asset_allocation(args.code)
-            print_asset_allocation(allocation_result)
+            portfolio_result = get_fund_portfolio_analysis(args.code, year=get_current_year())
+            print_portfolio_analysis(portfolio_result)
 
-            # 5. 费用明细
+            # 4. 费用明细
             print("=" * 70)
             print("  💰 费用明细")
             print("=" * 70)
@@ -569,7 +717,7 @@ def main():
             fee_result = get_fund_fee_details(args.code)
             print_fee_details(fee_result)
 
-            # 6. 流动性信息
+            # 5. 流动性信息
             print("=" * 70)
             print("  💧 流动性信息")
             print("=" * 70)
@@ -577,7 +725,7 @@ def main():
             liquidity_result = get_fund_liquidity_info(args.code)
             print_liquidity_info(liquidity_result)
 
-            # 7. 基金评级（如果有）
+            # 6. 基金评级（如果有）
             print("=" * 70)
             print("  ⭐ 基金评级")
             print("=" * 70)
@@ -594,7 +742,7 @@ def main():
             print("=" * 70)
         else:
             # 标准模式：只显示基本信息
-            details = query_fund_details(args.code)
+            details = query_fund_details(args.code, year=get_current_year())
             print_fund_details(details)
 
     elif args.command == 'ranking':
@@ -629,7 +777,7 @@ def main():
         print(f"📊 持仓动态分析: {args.code}")
         print()
 
-        result = get_fund_holdings_analysis(args.code, args.periods)
+        result = get_fund_holdings_analysis(args.code, year=get_current_year())
         print_holdings_analysis(result)
 
     elif args.command == 'allocation':
@@ -637,7 +785,9 @@ def main():
         print(f"🎯 资产配置结构: {args.code}")
         print()
 
-        result = get_fund_asset_allocation(args.code, args.year)
+        # 如果用户没有指定年份，使用当前年份
+        year = args.year if args.year else get_current_year()
+        result = get_fund_asset_allocation(args.code, date=year)
         print_asset_allocation(result)
 
     elif args.command == 'fee':
@@ -655,6 +805,38 @@ def main():
 
         result = get_fund_liquidity_info(args.code)
         print_liquidity_info(result)
+
+    elif args.command == 'performance':
+        print_banner()
+        print(f"📈 基金业绩: {args.code}")
+        print()
+
+        result = get_fund_performance(args.code)
+        print_performance(result)
+
+    elif args.command == 'risk':
+        print_banner()
+        print(f"⚠️  风险指标: {args.code}")
+        print()
+
+        result = get_fund_risk_metrics(args.code)
+        print_risk_metrics(result)
+
+    elif args.command == 'top-holdings':
+        print_banner()
+        print(f"💼 十大重仓股: {args.code}")
+        print()
+
+        result = get_fund_top_holdings(args.code, year=get_current_year())
+        print_top_holdings(result)
+
+    elif args.command == 'portfolio':
+        print_banner()
+        print(f"📊 投资组合完整分析: {args.code}")
+        print()
+
+        result = get_fund_portfolio_analysis(args.code, year=get_current_year())
+        print_portfolio_analysis(result)
 
     elif args.command == 'heatmap':
         print_banner()

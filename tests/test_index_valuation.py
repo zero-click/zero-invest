@@ -151,18 +151,18 @@ class TestPortfolioValuation:
 
 
 class TestFundToolIntegration:
-    """Test fund_tool.py CLI still works with new index commands."""
+    """Test fund_tools module still works with new index commands."""
 
     def test_import_fund_tool(self):
-        """fund_tool_akshare should import cleanly."""
-        from fund_tool_akshare import query_fund_details, search_funds
+        """src.fund_tools should import cleanly."""
+        from src.fund_tools import query_fund_details, search_funds
         assert callable(query_fund_details)
         assert callable(search_funds)
 
     def test_query_fund_format(self):
         """Query a real fund and check format."""
-        from fund_tool_akshare import query_fund_details
+        from src.fund_tools import query_fund_details
         # 588000 = 科创50ETF - should work with eastmoney API
-        result = query_fund_details("588000")
+        result = query_fund_details("588000", "2025")
         assert result.get("status") in ("success", "error")
         assert "code" in result or "message" in result

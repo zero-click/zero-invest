@@ -264,7 +264,7 @@ def compare_fund_with_index(fund_code: str, index_name: str = "沪深300") -> di
     Returns:
         dict with fund details + index valuation comparison
     """
-    from fund_tool_akshare import query_fund_details
+    from src.fund_tools import query_fund_details
     
     fund_result = query_fund_details(fund_code)
     index_result = get_index_pe(index_name)

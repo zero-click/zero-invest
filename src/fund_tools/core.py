@@ -9,26 +9,46 @@ import pandas as pd
 from typing import Dict, Any, Optional
 from functools import lru_cache
 import logging
-from datetime import datetime
 
 from .cache import get_fund_list
 
 logger = logging.getLogger(__name__)
 
+# 全局函数：获得所有基金经理
+@lru_cache(maxsize=1)
+def _get_all_managers() -> pd.DataFrame:
+    """获取所有基金经理数据（带缓存）"""
+    try:
+        return ak.fund_manager_em()
+    except Exception as e:
+        logger.warning(f"获取基金经理数据失败: {e}")
+        return pd.DataFrame()
 
-# ============================================================================
-# 工具函数
-# ============================================================================
+# 全局函数，获得所有基金的排名
+def get_fund_rankings(fund_type: str = "全部") -> Dict[str, Any]:
+    """
+    获取基金排行榜
 
-def _get_current_year() -> str:
-    """获取当前年份作为字符串"""
-    return str(datetime.now().year)
+    Args:
+        fund_type: 基金类型（全部/股票型/混合型/债券型/指数型/QDII/FOF）
 
+    Returns:
+        排行榜数据
+    """
+    try:
+        logger.info(f"正在获取{fund_type}基金排行榜...")
+        df = ak.fund_open_fund_rank_em(symbol=fund_type)
 
-# ============================================================================
-# 搜索功能
-# ============================================================================
+        return {
+            "status": "success",
+            "count": len(df),
+            "data": df.head(100).to_dict('records')  # 限制返回前100名
+        }
+    except Exception as e:
+        logger.error(f"获取基金排行榜失败: {e}")
+        return {"status": "error", "message": f"获取排行榜失败: {str(e)}"}
 
+# 全局函数：搜索基金
 @lru_cache(maxsize=1000)
 def search_funds(keyword: str) -> Dict[str, Any]:
     """
@@ -62,10 +82,69 @@ def search_funds(keyword: str) -> Dict[str, Any]:
         logger.error(f"搜索基金失败: {e}")
         return {"status": "error", "message": f"搜索失败: {str(e)}"}
 
+# 基金函数： 获得某个基金的业绩数据
+def get_fund_performance(code: str) -> Dict[str, str]:
+    """
+    获取基金业绩数据
 
-# ============================================================================
-# 详情查询
-# ============================================================================
+    Args:
+        code: 6位基金代码
+
+    Returns:
+        业绩数据字典，key为周期（如"近1月"、"近1年"等），value为收益率
+    """
+    performance = {}
+    try:
+        logger.info(f"正在查询基金 {code} 的业绩数据...")
+        achievement = ak.fund_individual_achievement_xq(symbol=code)
+
+        if achievement.empty:
+            return performance
+
+        # 提取阶段业绩
+        perf_dict = achievement.to_dict('records')
+        for item in perf_dict:
+            if item.get('业绩类型') == '阶段业绩':
+                cycle = item.get('周期', '')
+                return_pct = item.get('本产品区间收益', 0)
+                if cycle and return_pct:
+                    performance[cycle] = f"{return_pct:.2f}%"
+
+    except KeyError as e:
+        # 某些基金在雪球数据源中没有完整的业绩数据，这是正常现象
+        logger.debug(f"基金 {code} 在雪球数据源中无业绩数据: {e}")
+    except Exception as e:
+        logger.warning(f"获取基金业绩失败: {e}")
+
+    return performance
+
+# 基金函数：获得某个基金的风险指标
+def get_fund_risk_metrics(code: str) -> Optional[Dict[str, str]]:
+    """
+    获取基金风险指标
+
+    Args:
+        code: 6位基金代码
+
+    Returns:
+        风险指标字典，包含年化波动率、夏普比率、最大回撤
+    """
+    try:
+        logger.info(f"正在查询基金 {code} 的风险指标...")
+        analysis = ak.fund_individual_analysis_xq(symbol=code)
+
+        if analysis.empty:
+            return None
+
+        return calculate_risk_metrics_from_data(analysis)
+
+    except KeyError as e:
+        # 某些基金在雪球数据源中没有风险分析数据
+        logger.debug(f"基金 {code} 无风险分析数据: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"获取风险指标失败: {e}")
+        return None
 
 def calculate_risk_metrics_from_data(analysis_df: pd.DataFrame) -> Optional[Dict[str, str]]:
     """
@@ -94,13 +173,93 @@ def calculate_risk_metrics_from_data(analysis_df: pd.DataFrame) -> Optional[Dict
 
     return None
 
+# 基金函数： 获得某个基金的top10 持仓
+def _parse_operating_costs(operating_costs_df: pd.DataFrame) -> Dict[str, str]:
+    """
+    解析运作费用DataFrame，提取管理费率、托管费率、销售服务费率
 
-def query_fund_details(code: str) -> Dict[str, Any]:
+    Args:
+        operating_costs_df: ak.fund_fee_em(indicator='运作费用') 返回的DataFrame
+
+    Returns:
+        费率字典，如 {"管理费率": "1.20%（每年）", "托管费率": "0.20%（每年）"}
+    """
+    if operating_costs_df.empty:
+        return {}
+
+    try:
+        # 第一行数据，格式：0列是标签，1列是值，2列是标签，3列是值...
+        row = operating_costs_df.iloc[0]
+        costs = {}
+
+        for i in range(0, len(operating_costs_df.columns), 2):
+            if i + 1 < len(operating_costs_df.columns):
+                label = str(row[i]).strip()
+                value = str(row[i + 1]).strip()
+                costs[label] = value
+
+        return costs
+    except Exception as e:
+        logger.warning(f"解析运作费用失败: {e}")
+        return {}
+
+def get_fund_basic_fee_rates(code: str) -> Dict[str, str]:
+    """
+    获取基金基础费率（管理费率、托管费率、销售服务费率）
+
+    Args:
+        code: 6位基金代码
+
+    Returns:
+        基础费率字典
+    """
+    try:
+        logger.info(f"正在查询基金 {code} 的基础费率...")
+        operating_costs = ak.fund_fee_em(symbol=code, indicator='运作费用')
+        return _parse_operating_costs(operating_costs)
+    except Exception as e:
+        logger.warning(f"获取基础费率失败: {e}")
+        return {}
+
+def get_fund_top_holdings(code: str, year: str) -> list:
+    """
+    获取基金十大重仓股信息
+
+    Args:
+        code: 6位基金代码
+        year: 年份（用于获取最新持仓数据）
+
+    Returns:
+        重仓股列表，格式为 ["股票名称 (占比)", ...]
+    """
+    top_holdings = []
+    try:
+        logger.info(f"正在查询基金 {code} 的十大重仓股...")
+        portfolio = ak.fund_portfolio_hold_em(symbol=code, date=year)
+
+        if portfolio.empty:
+            return top_holdings
+
+        # 整理十大重仓股
+        for _, row in portfolio.head(10).iterrows():
+            stock_name = row.get('股票名称', '')
+            pct = row.get('占净值比例', 0)
+            if stock_name:
+                top_holdings.append(f"{stock_name} ({pct:.2f}%)" if pct else stock_name)
+
+    except Exception as e:
+        logger.warning(f"获取持仓数据失败: {e}")
+
+    return top_holdings
+
+# 基金函数： 查询某个基金的详细信息
+def query_fund_details(code: str, year: str) -> Dict[str, Any]:
     """
     查询基金详细信息
 
     Args:
         code: 6位基金代码
+        year: 年份（用于获取持仓数据）
 
     Returns:
         包含基金详细信息的字典
@@ -115,33 +274,9 @@ def query_fund_details(code: str) -> Dict[str, Any]:
         # 并发获取多个数据源
         overview = ak.fund_overview_em(symbol=code)
 
-        # 基金业绩（雪球）
-        achievement = None
-        try:
-            achievement = ak.fund_individual_achievement_xq(symbol=code)
-        except KeyError as e:
-            # 某些基金在雪球数据源中没有完整的业绩数据，这是正常现象
-            logger.debug(f"基金 {code} 在雪球数据源中无业绩数据: {e}")
-        except Exception as e:
-            logger.warning(f"获取基金业绩失败: {e}")
-
-        # 风险分析（雪球）
-        analysis = None
-        try:
-            analysis = ak.fund_individual_analysis_xq(symbol=code)
-        except KeyError as e:
-            # 某些基金在雪球数据源中没有风险分析数据，这是正常现象
-            # 常见的缺失字段: 'index_data_list', 'annual_performance_list' 等
-            logger.debug(f"基金 {code} 在雪球数据源中无风险分析数据: {e}")
-        except Exception as e:
-            logger.warning(f"获取风险分析失败: {e}")
-
-        # 十大重仓股
-        portfolio = None
-        try:
-            portfolio = ak.fund_portfolio_hold_em(symbol=code, date=_get_current_year())
-        except Exception as e:
-            logger.warning(f"获取持仓数据失败: {e}")
+        # 调用独立函数获取业绩和重仓股
+        performance = get_fund_performance(code)
+        top_holdings = get_fund_top_holdings(code, year)
 
         # 基金经理信息
         managers = []
@@ -161,15 +296,8 @@ def query_fund_details(code: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"获取基金规模失败: {e}")
 
-        # 费率信息
-        fee_rates = {}
-        try:
-            if '管理费率' in overview.columns and not pd.isna(overview.iloc[0]['管理费率']):
-                fee_rates['管理费率'] = overview.iloc[0]['管理费率']
-            if '托管费率' in overview.columns and not pd.isna(overview.iloc[0]['托管费率']):
-                fee_rates['托管费率'] = overview.iloc[0]['托管费率']
-        except Exception as e:
-            logger.warning(f"获取费率信息失败: {e}")
+        # 费率信息（调用独立函数）
+        fee_rates = get_fund_basic_fee_rates(code)
 
         # 业绩比较基准
         benchmark = None
@@ -187,29 +315,8 @@ def query_fund_details(code: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"获取成立日期失败: {e}")
 
-        # 整理十大重仓股
-        top_holdings = []
-        if portfolio is not None and not portfolio.empty:
-            for _, row in portfolio.head(10).iterrows():
-                stock_name = row.get('股票名称', '')
-                pct = row.get('占净值比例', 0)
-                if stock_name:
-                    top_holdings.append(f"{stock_name} ({pct:.2f}%)" if pct else stock_name)
-
-        # 整理风险指标
-        risk_metrics = calculate_risk_metrics_from_data(analysis) if analysis is not None else None
-
-        # 整理业绩数据
-        performance = {}
-        if achievement is not None and not achievement.empty:
-            perf_dict = achievement.to_dict('records')
-            # 提取年度业绩
-            for item in perf_dict:
-                if item.get('业绩类型') == '阶段业绩':
-                    cycle = item.get('周期', '')
-                    return_pct = item.get('本产品区间收益', 0)
-                    if cycle and return_pct:
-                        performance[cycle] = f"{return_pct:.2f}%"
+        # 获取风险指标
+        risk_metrics = get_fund_risk_metrics(code)
 
         logger.info(f"成功获取基金 {code} 的详细信息")
 
@@ -232,35 +339,7 @@ def query_fund_details(code: str) -> Dict[str, Any]:
         logger.error(f"查询基金详情失败 {code}: {e}")
         return {"status": "error", "message": f"查询失败: {str(e)}"}
 
-
-# ============================================================================
-# 排行榜和评级
-# ============================================================================
-
-def get_fund_rankings(fund_type: str = "全部") -> Dict[str, Any]:
-    """
-    获取基金排行榜
-
-    Args:
-        fund_type: 基金类型（全部/股票型/混合型/债券型/指数型/QDII/FOF）
-
-    Returns:
-        排行榜数据
-    """
-    try:
-        logger.info(f"正在获取{fund_type}基金排行榜...")
-        df = ak.fund_open_fund_rank_em(symbol=fund_type)
-
-        return {
-            "status": "success",
-            "count": len(df),
-            "data": df.head(100).to_dict('records')  # 限制返回前100名
-        }
-    except Exception as e:
-        logger.error(f"获取基金排行榜失败: {e}")
-        return {"status": "error", "message": f"获取排行榜失败: {str(e)}"}
-
-
+# 基金函数： 获得某个基金的评级信息
 def get_fund_rating(code: str) -> Dict[str, Any]:
     """
     获取基金评级信息
@@ -289,21 +368,7 @@ def get_fund_rating(code: str) -> Dict[str, Any]:
         logger.error(f"获取基金评级失败: {e}")
         return {"status": "error", "message": f"获取评级失败: {str(e)}"}
 
-
-# ============================================================================
-# 基金经理
-# ============================================================================
-
-@lru_cache(maxsize=1)
-def _get_all_managers() -> pd.DataFrame:
-    """获取所有基金经理数据（带缓存）"""
-    try:
-        return ak.fund_manager_em()
-    except Exception as e:
-        logger.warning(f"获取基金经理数据失败: {e}")
-        return pd.DataFrame()
-
-
+# 基金函数：获得某个基金的基金经理信息
 def get_fund_manager_details(code: str) -> Dict[str, Any]:
     """
     获取基金经理深度信息
@@ -347,14 +412,6 @@ def get_fund_manager_details(code: str) -> Dict[str, Any]:
             }
             managers_list.append(manager_info)
 
-        # 获取该基金的所有经理（通过fund_overview_em验证）
-        try:
-            overview = ak.fund_overview_em(symbol=code)
-            if not overview.empty and '基金经理人' in overview.columns:
-                manager_names = [m['姓名'] for m in managers_list]
-        except:
-            pass
-
         return {
             "status": "success",
             "managers": managers_list,
@@ -365,45 +422,71 @@ def get_fund_manager_details(code: str) -> Dict[str, Any]:
         logger.error(f"获取基金经理信息失败 {code}: {e}")
         return {"status": "error", "message": f"获取失败: {str(e)}"}
 
-
-# ============================================================================
-# 持仓分析
-# ============================================================================
-
-def get_fund_holdings_analysis(code: str, periods: int = 4) -> Dict[str, Any]:
+# 基金函数：获得某个基金的持仓分析（向后兼容函数）
+def get_fund_holdings_analysis(code: str, year: str, periods: int = 4) -> Dict[str, Any]:
     """
-    获取持仓动态分析
-    包括：重仓股变化、持仓集中度、换手率等
+    获取持仓动态分析（向后兼容函数）
+
+    已被 get_fund_portfolio_analysis 取代，保留此函数以保持向后兼容。
+
+    注意：periods 参数已废弃，现在始终返回本年和前一年的完整数据。
 
     Args:
         code: 基金代码
-        periods: 分析最近几个季度
+        year: 年份（用于获取最新持仓数据）
+        periods: 废弃参数（保留以兼容旧代码）
 
     Returns:
         持仓动态分析数据
+    """
+    # periods 参数已废弃，不再使用
+    _ = periods  # 标记为未使用
+    result = get_fund_portfolio_analysis(code, year)
+    if result.get('status') == 'error':
+        return result
+    # 只返回持仓分析相关的字段
+    return {
+        "status": result["status"],
+        "code": result["code"],
+        "concentration": result["concentration"],
+        "holdings_change_by_quarter": result["holdings_change_by_quarter"],
+        "latest_top_holdings": result["latest_top_holdings"]
+    }
+
+
+# 基金函数：获得某个基金的投资组合分析（合并函数）
+def get_fund_portfolio_analysis(code: str, year: str) -> Dict[str, Any]:
+    """
+    获取基金投资组合完整分析
+
+    包括：
+    - 持仓集中度（前10大持仓占比）
+    - 季度持仓变化（本年+前一年，累计买入金额）
+    - 最新股票持仓（前10大）
+    - 行业配置分布
+    - 债券持仓样本
+
+    Args:
+        code: 基金代码
+        year: 年份（用于获取最新持仓数据，会同时获取本年和前一年的持仓变化）
+
+    Returns:
+        投资组合分析数据字典
     """
     if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
         return {"status": "error", "message": f"无效的基金代码格式: '{code}'"}
 
     try:
-        logger.info(f"正在分析基金 {code} 的持仓动态...")
+        logger.info(f"正在分析基金 {code} 的投资组合...")
 
-        # 获取持仓变化数据
-        holdings_change = None
-        try:
-            holdings_change = ak.fund_portfolio_change_em(symbol=code)
-        except Exception as e:
-            logger.warning(f"获取持仓变化失败: {e}")
-
-        # 获取最新持仓
+        # ========== 1. 获取股票持仓（核心数据） ==========
         latest_holdings = None
-        current_year = _get_current_year()
         try:
-            latest_holdings = ak.fund_portfolio_hold_em(symbol=code, date=current_year)
+            latest_holdings = ak.fund_portfolio_hold_em(symbol=code, date=year)
         except Exception as e:
-            logger.warning(f"获取最新持仓失败: {e}")
+            logger.warning(f"获取股票持仓失败: {e}")
 
-        # 计算持仓集中度
+        # ========== 2. 计算持仓集中度 ==========
         concentration = {}
         if latest_holdings is not None and not latest_holdings.empty:
             top10_holdings = latest_holdings.head(10)
@@ -414,78 +497,46 @@ def get_fund_holdings_analysis(code: str, periods: int = 4) -> Dict[str, Any]:
                     "持仓集中度": "高" if total_pct > 70 else "中" if total_pct > 50 else "低"
                 }
 
-        # 整理持仓变化
+        # ========== 3. 获取季度持仓变化（本年+前一年） ==========
         changes_by_quarter = {}
-        if holdings_change is not None and not holdings_change.empty:
-            # 按季度分组
-            if '季度' in holdings_change.columns:
-                recent_quarters = holdings_change['季度'].unique()[:periods]
-                for q in recent_quarters:
-                    q_data = holdings_change[holdings_change['季度'] == q].head(10)
-                    stocks = []
-                    for _, row in q_data.iterrows():
-                        stock_name = row.get('股票名称', '')
-                        amount = row.get('本期累计买入金额', 0)
-                        if stock_name:
-                            stocks.append({
-                                "股票名称": stock_name,
-                                "股票代码": row.get('股票代码', ''),
-                                "买入金额": f"{float(amount):.2f}万" if pd.notna(amount) else 'N/A'
-                            })
-                    changes_by_quarter[str(q)] = stocks
 
-        return {
-            "status": "success",
-            "code": code,
-            "concentration": concentration,
-            "holdings_change_by_quarter": changes_by_quarter,
-            "latest_top_holdings": latest_holdings.head(10).to_dict('records') if latest_holdings is not None and not latest_holdings.empty else []
-        }
+        # 计算前一年
+        prev_year = str(int(year) - 1)
+        years_to_fetch = [prev_year, year]
 
-    except Exception as e:
-        logger.error(f"持仓分析失败 {code}: {e}")
-        return {"status": "error", "message": f"分析失败: {str(e)}"}
+        for year_to_fetch in years_to_fetch:
+            try:
+                yearly_change = ak.fund_portfolio_change_em(symbol=code, date=year_to_fetch)
+                if yearly_change is not None and not yearly_change.empty:
+                    if '季度' in yearly_change.columns:
+                        # 获取该年所有季度的数据
+                        quarters = yearly_change['季度'].unique()
+                        for q in quarters:
+                            # 如果该季度已存在，跳过（避免重复）
+                            if str(q) in changes_by_quarter:
+                                continue
+                            q_data = yearly_change[yearly_change['季度'] == q].head(10)
+                            stocks = []
+                            for _, row in q_data.iterrows():
+                                stock_name = row.get('股票名称', '')
+                                amount = row.get('本期累计买入金额', 0)
+                                if stock_name:
+                                    stocks.append({
+                                        "股票名称": stock_name,
+                                        "股票代码": row.get('股票代码', ''),
+                                        "买入金额": f"{float(amount):.2f}万" if pd.notna(amount) else 'N/A'
+                                    })
+                            changes_by_quarter[str(q)] = stocks
+            except KeyError:
+                # akshare 内部 bug：数据格式不匹配（通常是该年份无数据）
+                logger.debug(f"基金 {code} 在 {year_to_fetch} 年无持仓变化数据")
+            except Exception as e:
+                logger.warning(f"获取 {year_to_fetch} 年持仓变化失败: {e}")
 
-
-# ============================================================================
-# 资产配置
-# ============================================================================
-
-def get_fund_asset_allocation(code: str, date: Optional[str] = None) -> Dict[str, Any]:
-    """
-    获取资产配置结构
-    包括：股债比例、行业配置、投资风格等
-
-    Args:
-        code: 基金代码
-        date: 年份（可选，默认使用当前年份）
-
-    Returns:
-        资产配置数据
-    """
-    if date is None:
-        date = _get_current_year()
-    """
-    获取资产配置结构
-    包括：股债比例、行业配置、投资风格等
-
-    Args:
-        code: 基金代码
-        date: 年份
-
-    Returns:
-        资产配置数据
-    """
-    if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
-        return {"status": "error", "message": f"无效的基金代码格式: '{code}'"}
-
-    try:
-        logger.info(f"正在查询基金 {code} 的资产配置...")
-
-        # 获取行业配置
+        # ========== 4. 获取行业配置 ==========
         industry_allocation = []
         try:
-            industry_df = ak.fund_portfolio_industry_allocation_em(symbol=code, date=date)
+            industry_df = ak.fund_portfolio_industry_allocation_em(symbol=code, date=year)
             if not industry_df.empty:
                 for _, row in industry_df.iterrows():
                     industry_allocation.append({
@@ -496,10 +547,10 @@ def get_fund_asset_allocation(code: str, date: Optional[str] = None) -> Dict[str
         except Exception as e:
             logger.warning(f"获取行业配置失败: {e}")
 
-        # 获取债券持仓
+        # ========== 5. 获取债券持仓 ==========
         bond_holdings = []
         try:
-            bond_df = ak.fund_portfolio_bond_hold_em(symbol=code, date=date)
+            bond_df = ak.fund_portfolio_bond_hold_em(symbol=code, date=year)
             if not bond_df.empty:
                 for _, row in bond_df.head(10).iterrows():
                     bond_name = row.get('债券名称', '')
@@ -514,52 +565,62 @@ def get_fund_asset_allocation(code: str, date: Optional[str] = None) -> Dict[str
         except Exception as e:
             logger.warning(f"获取债券持仓失败: {e}")
 
-        # 获取股票持仓
-        stock_holdings = []
-        try:
-            stock_df = ak.fund_portfolio_hold_em(symbol=code, date=date)
-            if not stock_df.empty:
-                for _, row in stock_df.iterrows():
-                    pct = row.get('占净值比例', 0)
-                    stock_name = row.get('股票名称', '')
-                    if stock_name:
-                        stock_holdings.append({
-                            "股票名称": stock_name,
-                            "占净值比例": f"{float(pct):.2f}%" if pd.notna(pct) else 'N/A'
-                        })
-        except Exception as e:
-            logger.warning(f"获取股票持仓失败: {e}")
-
-        # 判断投资风格
-        style = "未知"
-        if stock_holdings:
-            top_holdings = stock_holdings[:5]
-            # 这里简化判断，实际应该根据具体的股票特征来判断
-            style = "平衡型"
-
+        # ========== 6. 组装返回结果 ==========
         return {
             "status": "success",
             "code": code,
-            "date": date,
-            "investment_style": style,
+            "year": year,
+            # 持仓分析
+            "concentration": concentration,
+            "holdings_change_by_quarter": changes_by_quarter,
+            "latest_top_holdings": latest_holdings.head(10).to_dict('records') if latest_holdings is not None and not latest_holdings.empty else [],
+            # 资产配置
             "industry_allocation": industry_allocation,
-            "stock_holdings_sample": stock_holdings[:5],
             "bond_holdings_sample": bond_holdings[:5]
         }
 
     except Exception as e:
-        logger.error(f"获取资产配置失败 {code}: {e}")
-        return {"status": "error", "message": f"获取失败: {str(e)}"}
+        logger.error(f"投资组合分析失败 {code}: {e}")
+        return {"status": "error", "message": f"分析失败: {str(e)}"}
 
+# 基金函数：获得某个基金的资产配置结构（向后兼容函数）
+def get_fund_asset_allocation(code: str, date: str) -> Dict[str, Any]:
+    """
+    获取资产配置结构（向后兼容函数）
 
-# ============================================================================
-# 费用信息
-# ============================================================================
+    已被 get_fund_portfolio_analysis 取代，保留此函数以保持向后兼容。
 
+    Args:
+        code: 基金代码
+        date: 年份
+
+    Returns:
+        资产配置数据
+    """
+    result = get_fund_portfolio_analysis(code, date)
+    if result.get('status') == 'error':
+        return result
+    # 只返回资产配置相关的字段，并添加 stock_holdings_sample 以保持兼容
+    stock_holdings_sample = []
+    for holding in result.get('latest_top_holdings', [])[:5]:
+        stock_holdings_sample.append({
+            "股票名称": holding.get('股票名称', ''),
+            "占净值比例": holding.get('占净值比例', 'N/A')
+        })
+    return {
+        "status": result["status"],
+        "code": result["code"],
+        "date": result["year"],
+        "industry_allocation": result["industry_allocation"],
+        "stock_holdings_sample": stock_holdings_sample,
+        "bond_holdings_sample": result["bond_holdings_sample"]
+    }
+
+# 基金函数：获得某个基金的费用信息
 def get_fund_fee_details(code: str) -> Dict[str, Any]:
     """
     获取费用明细
-    包括：申购费率、赎回费率、管理费率、托管费率等
+    包括：申购费率、赎回费率、管理费率、托管费率、销售服务费率等
 
     Args:
         code: 基金代码
@@ -575,40 +636,22 @@ def get_fund_fee_details(code: str) -> Dict[str, Any]:
 
         fee_details = {}
 
-        # 获取认购费率
-        try:
-            purchase_fee = ak.fund_fee_em(symbol=code, indicator="认购费率")
-            if not purchase_fee.empty:
-                fee_details["认购费率"] = purchase_fee.to_dict('records')
-        except Exception as e:
-            logger.warning(f"获取认购费率失败: {e}")
+        # 1. 获取基础费率（管理费率、托管费率、销售服务费率）- 一次调用
+        basic_rates = get_fund_basic_fee_rates(code)
+        fee_details.update(basic_rates)
 
-        # 获取申购费率
-        try:
-            subscription_fee = ak.fund_fee_em(symbol=code, indicator="申购费率")
-            if not subscription_fee.empty:
-                fee_details["申购费率"] = subscription_fee.to_dict('records')
-        except Exception as e:
-            logger.warning(f"获取申购费率失败: {e}")
-
-        # 获取赎回费率
-        try:
-            redemption_fee = ak.fund_fee_em(symbol=code, indicator="赎回费率")
-            if not redemption_fee.empty:
-                fee_details["赎回费率"] = redemption_fee.to_dict('records')
-        except Exception as e:
-            logger.warning(f"获取赎回费率失败: {e}")
-
-        # 从overview获取管理费率和托管费率
-        try:
-            overview = ak.fund_overview_em(symbol=code)
-            if not overview.empty:
-                if '管理费率' in overview.columns:
-                    fee_details["管理费率"] = overview.iloc[0]['管理费率']
-                if '托管费率' in overview.columns:
-                    fee_details["托管费率"] = overview.iloc[0]['托管费率']
-        except Exception as e:
-            logger.warning(f"获取管理费率/托管费率失败: {e}")
+        # 2. 获取交易费率（需要多次调用，但指标不同）
+        # 注意：认购费率对已成立基金通常不适用，且akshare有bug，跳过
+        fee_indicators = ["申购费率（前端）", "赎回费率"]
+        for indicator in fee_indicators:
+            try:
+                fee_df = ak.fund_fee_em(symbol=code, indicator=indicator)
+                if not fee_df.empty:
+                    # 使用简化的key，去掉"（前端）"等后缀
+                    key = indicator.replace("（前端）", "").replace("（后端）", "")
+                    fee_details[key] = fee_df.to_dict('records')
+            except Exception as e:
+                logger.warning(f"获取{indicator}失败: {e}")
 
         return {
             "status": "success",
@@ -620,11 +663,7 @@ def get_fund_fee_details(code: str) -> Dict[str, Any]:
         logger.error(f"获取费用明细失败 {code}: {e}")
         return {"status": "error", "message": f"获取失败: {str(e)}"}
 
-
-# ============================================================================
-# 流动性信息
-# ============================================================================
-
+# 基金函数：获得某个基金的流动性信息
 def get_fund_liquidity_info(code: str) -> Dict[str, Any]:
     """
     获取流动性信息

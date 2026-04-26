@@ -22,9 +22,14 @@ from fund_tools import (
     query_fund_details,
     get_fund_rankings,
     get_fund_rating,
+    get_fund_risk_metrics,
+    get_fund_performance,
+    get_fund_top_holdings,
+    get_fund_basic_fee_rates,
     get_fund_manager_details,
     get_fund_holdings_analysis,
     get_fund_asset_allocation,
+    get_fund_portfolio_analysis,
     get_fund_fee_details,
     get_fund_liquidity_info,
     FUND_DB_FILE,
@@ -131,7 +136,7 @@ class TestQueryFundDetails:
     @pytest.mark.parametrize("fund_code", TEST_FUNDS)
     def test_query_fund_details_success(self, fund_code):
         """测试查询测试基金的详情"""
-        result = query_fund_details(fund_code)
+        result = query_fund_details(fund_code, '2024')
 
         assert result['status'] == 'success'
         assert result['code'] == fund_code
@@ -143,7 +148,7 @@ class TestQueryFundDetails:
 
     def test_query_fund_details_000001_details(self):
         """测试 000001 华夏成长的详细信息"""
-        result = query_fund_details('000001')
+        result = query_fund_details('000001', '2024')
 
         assert result['status'] == 'success'
         assert result['name'] == '华夏成长混合'
@@ -162,7 +167,7 @@ class TestQueryFundDetails:
         invalid_codes = ['123', 'abcdef', '', '1234567']
 
         for code in invalid_codes:
-            result = query_fund_details(code)
+            result = query_fund_details(code, '2024')
             assert result['status'] == 'error'
             assert '无效的基金代码格式' in result['message']
 
@@ -219,6 +224,91 @@ class TestFundRating:
 
 
 # ============================================================================
+# 测试风险指标
+# ============================================================================
+
+@pytest.mark.integration
+class TestFundRiskMetrics:
+    """测试风险指标（真实数据）"""
+
+    @pytest.mark.parametrize("fund_code", TEST_FUNDS)
+    def test_get_fund_risk_metrics(self, fund_code):
+        """测试获取测试基金的风险指标"""
+        result = get_fund_risk_metrics(fund_code)
+
+        # 风险指标可能返回数据，也可能返回None
+        if result is not None:
+            assert isinstance(result, dict)
+            if '年化波动率' in result:
+                print(f"\n{fund_code} 风险指标: {result}")
+        else:
+            print(f"\n{fund_code} 无风险指标数据")
+
+
+# ============================================================================
+# 测试基金业绩
+# ============================================================================
+
+@pytest.mark.integration
+class TestFundPerformance:
+    """测试基金业绩（真实数据）"""
+
+    @pytest.mark.parametrize("fund_code", TEST_FUNDS)
+    def test_get_fund_performance(self, fund_code):
+        """测试获取测试基金的业绩数据"""
+        result = get_fund_performance(fund_code)
+
+        assert isinstance(result, dict)
+        if result:
+            print(f"\n{fund_code} 业绩数据: {result}")
+        else:
+            print(f"\n{fund_code} 无业绩数据")
+
+
+# ============================================================================
+# 测试十大重仓股
+# ============================================================================
+
+@pytest.mark.integration
+class TestFundTopHoldings:
+    """测试十大重仓股（真实数据）"""
+
+    @pytest.mark.parametrize("fund_code", TEST_FUNDS)
+    def test_get_fund_top_holdings(self, fund_code):
+        """测试获取测试基金的十大重仓股"""
+        result = get_fund_top_holdings(fund_code, '2024')
+
+        assert isinstance(result, list)
+        if result:
+            print(f"\n{fund_code} 十大重仓股: {result[:5]}...")  # 只打印前5个
+            assert len(result) <= 10
+        else:
+            print(f"\n{fund_code} 无重仓股数据")
+
+
+# ============================================================================
+# 测试基础费率
+# ============================================================================
+
+@pytest.mark.integration
+class TestFundBasicFeeRates:
+    """测试基础费率（真实数据）"""
+
+    @pytest.mark.parametrize("fund_code", TEST_FUNDS)
+    def test_get_fund_basic_fee_rates(self, fund_code):
+        """测试获取测试基金的基础费率"""
+        result = get_fund_basic_fee_rates(fund_code)
+
+        assert isinstance(result, dict)
+        if result:
+            # 验证包含管理费率和托管费率
+            assert '管理费率' in result or '托管费率' in result
+            print(f"\n{fund_code} 基础费率: {result}")
+        else:
+            print(f"\n{fund_code} 无基础费率数据")
+
+
+# ============================================================================
 # 测试基金经理详情
 # ============================================================================
 
@@ -258,7 +348,7 @@ class TestFundHoldingsAnalysis:
     @pytest.mark.parametrize("fund_code", TEST_FUNDS)
     def test_get_holdings_analysis(self, fund_code):
         """测试获取测试基金的持仓分析"""
-        result = get_fund_holdings_analysis(fund_code)
+        result = get_fund_holdings_analysis(fund_code, '2024')
 
         assert result['status'] == 'success'
         assert 'code' in result
@@ -271,7 +361,7 @@ class TestFundHoldingsAnalysis:
 
     def test_get_holdings_analysis_invalid_code(self):
         """测试无效代码"""
-        result = get_fund_holdings_analysis('abc')
+        result = get_fund_holdings_analysis('abc', '2024')
 
         assert result['status'] == 'error'
 
@@ -291,7 +381,7 @@ class TestFundAssetAllocation:
 
         assert result['status'] == 'success'
         assert 'code' in result
-        assert 'investment_style' in result
+        assert 'date' in result
 
         # 验证行业配置
         if result['industry_allocation']:
@@ -303,6 +393,107 @@ class TestFundAssetAllocation:
         result = get_fund_asset_allocation('1234567', '2024')
 
         assert result['status'] == 'error'
+
+
+# ============================================================================
+# 测试投资组合完整分析（新合并函数）
+# ============================================================================
+
+@pytest.mark.integration
+class TestFundPortfolioAnalysis:
+    """测试投资组合完整分析（真实数据）"""
+
+    @pytest.mark.parametrize("fund_code", TEST_FUNDS)
+    def test_get_portfolio_analysis(self, fund_code):
+        """测试获取测试基金的投资组合完整分析"""
+        result = get_fund_portfolio_analysis(fund_code, '2024')
+
+        assert result['status'] == 'success'
+        assert result['code'] == fund_code
+        assert 'year' in result
+
+        # 验证包含所有必需字段
+        assert 'concentration' in result
+        assert 'holdings_change_by_quarter' in result
+        assert 'latest_top_holdings' in result
+        assert 'industry_allocation' in result
+        assert 'bond_holdings_sample' in result
+
+        # 验证持仓集中度
+        concentration = result['concentration']
+        if concentration:
+            assert '前10大持仓占比' in concentration
+            print(f"\n{fund_code} 持仓集中度: {concentration}")
+
+        # 验证最新持仓
+        holdings = result['latest_top_holdings']
+        if holdings:
+            first_holding = holdings[0]
+            assert '股票名称' in first_holding
+            print(f"\n{fund_code} 第一大持仓: {first_holding['股票名称']}")
+
+        # 验证行业配置
+        industries = result['industry_allocation']
+        if industries:
+            first_industry = industries[0]
+            assert '行业类别' in first_industry
+            print(f"\n{fund_code} 第一大行业: {first_industry['行业类别']}")
+
+    def test_get_portfolio_analysis_two_years(self):
+        """测试获取本年和前一年的持仓变化"""
+        result = get_fund_portfolio_analysis('000001', '2025')
+
+        assert result['status'] == 'success'
+        assert 'holdings_change_by_quarter' in result
+
+        changes = result['holdings_change_by_quarter']
+        print(f"\n2025年持仓变化季度数: {len(changes)}")
+
+        # 验证包含了 2025 年和 2024 年的数据
+        if changes:
+            quarters = list(changes.keys())
+            print(f"季度列表: {quarters}")
+            # 检查是否包含跨年数据
+            has_2025 = any('2025' in q for q in quarters)
+            has_2024 = any('2024' in q for q in quarters)
+            print(f"包含2025年数据: {has_2025}")
+            print(f"包含2024年数据: {has_2024}")
+
+    def test_get_portfolio_analysis_invalid_code(self):
+        """测试无效代码"""
+        result = get_fund_portfolio_analysis('abc', '2024')
+
+        assert result['status'] == 'error'
+        assert '无效的基金代码格式' in result['message']
+
+    def test_portfolio_analysis_contains_holdings_data(self):
+        """测试投资组合分析包含持仓分析的所有数据"""
+        # 获取投资组合完整分析
+        portfolio = get_fund_portfolio_analysis('000001', '2024')
+        # 获取持仓分析
+        holdings = get_fund_holdings_analysis('000001', '2024')
+
+        # 验证投资组合分析包含持仓分析的所有字段
+        assert portfolio['status'] == holdings['status']
+        assert 'concentration' in portfolio
+        assert 'holdings_change_by_quarter' in portfolio
+        assert 'latest_top_holdings' in portfolio
+
+        # 验证持仓集中度数据一致
+        if holdings['concentration']:
+            assert portfolio['concentration'] == holdings['concentration']
+
+    def test_portfolio_analysis_contains_allocation_data(self):
+        """测试投资组合分析包含资产配置的所有数据"""
+        # 获取投资组合完整分析
+        portfolio = get_fund_portfolio_analysis('000001', '2024')
+        # 获取资产配置
+        allocation = get_fund_asset_allocation('000001', '2024')
+
+        # 验证投资组合分析包含资产配置的所有字段
+        assert portfolio['status'] == allocation['status']
+        assert 'industry_allocation' in portfolio
+        assert 'bond_holdings_sample' in portfolio
 
 
 # ============================================================================
@@ -372,7 +563,7 @@ class TestFullWorkflow:
     """测试完整的用户工作流"""
 
     def test_complete_fund_analysis_workflow(self):
-        """测试完整的基金分析流程：搜索 -> 详情 -> 经理 -> 持仓"""
+        """测试完整的基金分析流程：搜索 -> 详情 -> 经理 -> 投资组合"""
         # 步骤1: 搜索"华夏成长"
         search_result = search_funds('华夏成长')
         assert search_result['status'] == 'success'
@@ -380,7 +571,7 @@ class TestFullWorkflow:
 
         # 步骤2: 获取第一个基金的详情
         fund_code = search_result['data'][0]['基金代码']
-        detail_result = query_fund_details(fund_code)
+        detail_result = query_fund_details(fund_code, '2024')
         assert detail_result['status'] == 'success'
         print(f"\n分析基金: {detail_result['name']}")
 
@@ -388,9 +579,16 @@ class TestFullWorkflow:
         manager_result = get_fund_manager_details(fund_code)
         assert manager_result['status'] == 'success'
 
-        # 步骤4: 获取持仓分析
-        holdings_result = get_fund_holdings_analysis(fund_code)
-        assert holdings_result['status'] == 'success'
+        # 步骤4: 获取投资组合完整分析（合并了持仓分析和资产配置）
+        portfolio_result = get_fund_portfolio_analysis(fund_code, '2024')
+        assert portfolio_result['status'] == 'success'
+
+        # 验证投资组合分析包含所有必要数据
+        assert 'concentration' in portfolio_result
+        assert 'latest_top_holdings' in portfolio_result
+        assert 'industry_allocation' in portfolio_result
+        print(f"\n持仓集中度: {portfolio_result['concentration']}")
+        print(f"行业配置数: {len(portfolio_result['industry_allocation'])}")
 
         # 步骤5: 获取费用信息
         fee_result = get_fund_fee_details(fund_code)
@@ -401,7 +599,7 @@ class TestFullWorkflow:
         results = []
 
         for fund_code in TEST_FUNDS:
-            detail = query_fund_details(fund_code)
+            detail = query_fund_details(fund_code, '2024')
             assert detail['status'] == 'success'
 
             results.append({
@@ -439,6 +637,7 @@ pytestmark = [
 
 运行特定测试类:
     pytest tests/test_fund_tools.py::TestQueryFundDetails -v
+    pytest tests/test_fund_tools.py::TestFundPortfolioAnalysis -v
 
 运行特定基金测试:
     pytest tests/test_fund_tools.py::TestQueryFundDetails::test_query_fund_details_success -v
@@ -449,10 +648,14 @@ pytestmark = [
 显示详细输出:
     pytest tests/test_fund_tools.py -v -s
 
+测试新增的投资组合分析功能:
+    pytest tests/test_fund_tools.py::TestFundPortfolioAnalysis -v
+
 注意事项：
 1. 这些测试需要网络连接
 2. 会调用真实的 akshare API
 3. 使用基金 000001, 000012, 000041 作为测试对象
 4. 可能受网络状况和API限制影响
 5. 首次运行会下载完整基金列表（约26000只基金）
+6. TestFundPortfolioAnalysis 测试合并后的投资组合分析功能
 """
