@@ -6,13 +6,20 @@
 
 import akshare as ak
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from functools import lru_cache
 import logging
+import re
+import time
+import os
 
 from .cache import get_fund_list
 
 logger = logging.getLogger(__name__)
+
+# ETF 行情缓存（仅缓存成功结果，避免失败结果污染）
+_ETF_SPOT_CACHE = {"df": None, "ts": 0.0, "source": ""}
+_ETF_SPOT_CACHE_TTL_SECONDS = 120
 
 # 全局函数：获得所有基金经理
 @lru_cache(maxsize=1)
@@ -47,6 +54,325 @@ def get_fund_rankings(fund_type: str = "全部") -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"获取基金排行榜失败: {e}")
         return {"status": "error", "message": f"获取排行榜失败: {str(e)}"}
+
+
+def _clear_proxy_env() -> None:
+    """移除代理环境变量，避免访问国内源时走本地代理导致失败"""
+    for k in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"]:
+        os.environ.pop(k, None)
+
+
+def _fetch_table_with_retry(fetcher, source_name: str, retries: int = 2) -> pd.DataFrame:
+    """带重试地获取表数据"""
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            _clear_proxy_env()
+            df = fetcher()
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            last_error = e
+            logger.warning(f"获取 ETF 行情失败 [{source_name}] 第{attempt}/{retries}次: {e}")
+        time.sleep(0.2)
+
+    if last_error is not None:
+        logger.warning(f"获取 ETF 行情失败 [{source_name}]，已重试{retries}次")
+    return pd.DataFrame()
+
+
+def _get_etf_spot_table(force_refresh: bool = False) -> pd.DataFrame:
+    """
+    获取 ETF 实时行情表（成功缓存，失败不缓存）
+
+    数据源优先级: 东方财富 -> 同花顺 -> 场内基金排行（降级）
+    """
+    now = time.time()
+    cached_df = _ETF_SPOT_CACHE.get("df")
+    cached_ts = _ETF_SPOT_CACHE.get("ts", 0.0)
+    if (
+        not force_refresh
+        and isinstance(cached_df, pd.DataFrame)
+        and not cached_df.empty
+        and now - cached_ts < _ETF_SPOT_CACHE_TTL_SECONDS
+    ):
+        return cached_df
+
+    sources = [
+        ("em", ak.fund_etf_spot_em),
+        ("ths", getattr(ak, "fund_etf_spot_ths", None)),
+        ("rank", ak.fund_exchange_rank_em),
+    ]
+
+    for source_name, fetcher in sources:
+        if fetcher is None:
+            continue
+        df = _fetch_table_with_retry(fetcher, source_name=source_name, retries=2)
+        if df is not None and not df.empty:
+            _ETF_SPOT_CACHE["df"] = df
+            _ETF_SPOT_CACHE["ts"] = now
+            _ETF_SPOT_CACHE["source"] = source_name
+            return df
+
+    return pd.DataFrame()
+
+
+def _pick_first_value(row: pd.Series, candidates: List[str]) -> Any:
+    """按候选字段顺序提取首个可用值"""
+    for col in candidates:
+        if col in row.index and pd.notna(row.get(col)):
+            return row.get(col)
+    return None
+
+
+def get_fund_market_metrics(code: str) -> Dict[str, Any]:
+    """
+    获取基金场内行情指标（ETF/LOF 等）
+
+    说明:
+      - 成交额、折溢价等数据主要适用于场内交易基金
+      - 对场外基金通常返回 N/A
+    """
+    if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
+        return {"status": "error", "message": f"无效的基金代码格式: '{code}'"}
+
+    try:
+        df = _get_etf_spot_table()
+        if df is None or df.empty:
+            return {
+                "status": "success",
+                "code": code,
+                "is_exchange_traded": False,
+                "market_data_source": _ETF_SPOT_CACHE.get("source", ""),
+                "market_metrics": {
+                    "成交额": "N/A",
+                    "折溢价率": "N/A",
+                    "IOPV实时估值": "N/A",
+                    "成交量": "N/A",
+                    "换手率": "N/A",
+                },
+            }
+
+        code_col = None
+        for c in ["代码", "基金代码", "证券代码", "symbol"]:
+            if c in df.columns:
+                code_col = c
+                break
+
+        if not code_col:
+            return {
+                "status": "success",
+                "code": code,
+                "is_exchange_traded": False,
+                "market_data_source": _ETF_SPOT_CACHE.get("source", ""),
+                "market_metrics": {
+                    "成交额": "N/A",
+                    "折溢价率": "N/A",
+                    "IOPV实时估值": "N/A",
+                    "成交量": "N/A",
+                    "换手率": "N/A",
+                },
+            }
+
+        matched = df[df[code_col].astype(str).str.zfill(6) == code]
+        if matched.empty:
+            return {
+                "status": "success",
+                "code": code,
+                "is_exchange_traded": False,
+                "market_data_source": _ETF_SPOT_CACHE.get("source", ""),
+                "market_metrics": {
+                    "成交额": "N/A",
+                    "折溢价率": "N/A",
+                    "IOPV实时估值": "N/A",
+                    "成交量": "N/A",
+                    "换手率": "N/A",
+                },
+            }
+
+        row = matched.iloc[0]
+        turnover_amount = _pick_first_value(row, ["成交额", "成交金额"])
+        discount_rate = _pick_first_value(row, ["基金折价率", "折价率", "溢折率", "溢价率"])
+        iopv = _pick_first_value(row, ["IOPV实时估值", "IOPV", "参考净值"])
+        volume = _pick_first_value(row, ["成交量", "成交手"])
+        turnover_ratio = _pick_first_value(row, ["换手率"])
+
+        return {
+            "status": "success",
+            "code": code,
+            "is_exchange_traded": True,
+            "market_data_source": _ETF_SPOT_CACHE.get("source", ""),
+            "market_metrics": {
+                "成交额": turnover_amount if turnover_amount is not None else "N/A",
+                "折溢价率": discount_rate if discount_rate is not None else "N/A",
+                "IOPV实时估值": iopv if iopv is not None else "N/A",
+                "成交量": volume if volume is not None else "N/A",
+                "换手率": turnover_ratio if turnover_ratio is not None else "N/A",
+            },
+        }
+    except Exception as e:
+        logger.warning(f"获取基金 {code} 场内行情指标失败: {e}")
+        return {
+            "status": "success",
+            "code": code,
+            "is_exchange_traded": False,
+            "market_data_source": _ETF_SPOT_CACHE.get("source", ""),
+            "market_metrics": {
+                "成交额": "N/A",
+                "折溢价率": "N/A",
+                "IOPV实时估值": "N/A",
+                "成交量": "N/A",
+                "换手率": "N/A",
+            },
+        }
+
+
+def _build_index_aliases(index_code: str, index_name: str) -> List[str]:
+    """
+    基于指数代码和名称动态构造别名（不依赖硬编码字典）
+
+    目标是提升“任意指数”候选基金匹配召回率。
+    """
+    base_names = {
+        str(index_name).strip(),
+        str(index_name).replace("指数", "").strip(),
+        str(index_name).replace("中证", "").strip(),
+        str(index_name).replace("国证", "").strip(),
+    }
+
+    # 数字短码：000300 -> 300
+    short_code = str(int(index_code)) if index_code.isdigit() else index_code
+
+    aliases = {index_code, short_code}
+    for name in base_names:
+        if not name or len(name) < 2:
+            continue
+        aliases.add(name)
+        aliases.add(f"{name}ETF")
+        aliases.add(f"{name}联接")
+        aliases.add(f"{name}指数")
+
+    # 数字形态别名（适配 300ETF / 300联接 这类命名）
+    if short_code and len(short_code) >= 2:
+        aliases.add(f"{short_code}ETF")
+        aliases.add(f"{short_code}联接")
+        aliases.add(f"{short_code}指数")
+
+    return list(dict.fromkeys([x for x in aliases if x]))
+
+
+def _extract_tracking_target(overview_df: pd.DataFrame) -> str:
+    """从基金概况中提取跟踪标的信息"""
+    if overview_df is None or overview_df.empty:
+        return ""
+
+    row = overview_df.iloc[0]
+    for col in ("跟踪标的", "跟踪标的指数", "跟踪指数", "业绩比较基准"):
+        if col in overview_df.columns and pd.notna(row.get(col)):
+            return str(row.get(col)).strip()
+    return ""
+
+
+@lru_cache(maxsize=128)
+def get_index_candidate_funds(index_code: str) -> Dict[str, Any]:
+    """
+    获取某个指数对应的候选基金池（第一步：候选列表）
+
+    逻辑:
+      1. 基于基金名称进行初筛
+      2. 用基金概况中的跟踪标的信息做二次确认
+
+    Args:
+        index_code: 6位指数代码，如 "000300"
+
+    Returns:
+        候选基金列表和基础元数据
+    """
+    if not isinstance(index_code, str) or len(index_code) != 6:
+        return {"status": "error", "message": f"无效的指数代码: '{index_code}'"}
+
+    try:
+        from . import get_index_info_by_code
+
+        index_info = get_index_info_by_code(index_code)
+        if not index_info:
+            return {"status": "error", "message": f"未找到指数 {index_code}"}
+
+        index_name = index_info.get("name", "").strip()
+        aliases = _build_index_aliases(index_code=index_code, index_name=index_name)
+        if not aliases:
+            return {"status": "error", "message": f"无法为指数 {index_code} 构造匹配关键词"}
+
+        logger.info(f"正在获取指数 {index_code} 候选基金池...")
+
+        # 先取被动指数基金全集，再按名称筛选
+        all_index_funds = ak.fund_info_index_em(symbol="全部", indicator="被动指数型")
+        if all_index_funds is None or all_index_funds.empty:
+            return {"status": "error", "message": "指数基金列表为空"}
+
+        if "基金名称" not in all_index_funds.columns:
+            return {"status": "error", "message": "指数基金列表缺少'基金名称'字段"}
+
+        pattern = "|".join(re.escape(a) for a in aliases if a != index_code)
+        candidates = all_index_funds[
+            all_index_funds["基金名称"].astype(str).str.contains(pattern, case=False, na=False)
+        ].copy()
+
+        # 二次确认：优先使用概况里的跟踪标的
+        confirmed_records: List[Dict[str, Any]] = []
+        for _, row in candidates.iterrows():
+            fund_code = str(row.get("基金代码", "")).zfill(6)
+            if not fund_code:
+                continue
+
+            tracking_target = str(row.get("跟踪标的", "")).strip()
+            try:
+                overview = ak.fund_overview_em(symbol=fund_code)
+                overview_target = _extract_tracking_target(overview)
+                if overview_target:
+                    tracking_target = overview_target
+            except Exception as e:
+                logger.debug(f"获取基金 {fund_code} 概况失败（使用初筛结果）: {e}")
+
+            confirm_text = f"{row.get('基金名称', '')} {tracking_target}"
+            is_confirmed = (
+                index_name in confirm_text
+                or index_name.replace("指数", "") in confirm_text
+                or index_code in confirm_text
+            )
+
+            if not is_confirmed:
+                continue
+
+            confirmed_records.append({
+                "基金代码": fund_code,
+                "基金名称": row.get("基金名称", ""),
+                "跟踪方式": row.get("跟踪方式", ""),
+                "跟踪标的": tracking_target or row.get("跟踪标的", ""),
+                "单位净值": row.get("单位净值"),
+                "日期": row.get("日期"),
+                "近1年": row.get("近1年"),
+                "手续费": row.get("手续费"),
+                "起购金额": row.get("起购金额"),
+            })
+
+        confirmed_records.sort(key=lambda x: str(x.get("基金代码", "")))
+
+        return {
+            "status": "success",
+            "index": {
+                "code": index_code,
+                "name": index_name,
+                "category": index_info.get("category", ""),
+            },
+            "aliases": aliases,
+            "count": len(confirmed_records),
+            "funds": confirmed_records,
+        }
+
+    except Exception as e:
+        logger.error(f"获取指数 {index_code} 候选基金池失败: {e}")
+        return {"status": "error", "message": f"获取失败: {str(e)}"}
 
 # 全局函数：搜索基金
 @lru_cache(maxsize=1000)
@@ -317,6 +643,8 @@ def query_fund_details(code: str, year: str) -> Dict[str, Any]:
 
         # 获取风险指标
         risk_metrics = get_fund_risk_metrics(code)
+        # 暂时停用场内行情指标抓取（网络链路不稳定）
+        # market_metrics_result = get_fund_market_metrics(code)
 
         logger.info(f"成功获取基金 {code} 的详细信息")
 
@@ -332,7 +660,10 @@ def query_fund_details(code: str, year: str) -> Dict[str, Any]:
             "benchmark": benchmark,
             "performance": performance,
             "risk_metrics": risk_metrics,
-            "top_holdings": top_holdings
+            "top_holdings": top_holdings,
+            "is_exchange_traded": False,
+            "market_data_source": "",
+            "market_metrics": {},
         }
 
     except Exception as e:

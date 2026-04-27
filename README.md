@@ -32,13 +32,16 @@ get_fund_details(code="000001", detail=True)
 | 💧 **流动性信息** | 申赎状态、交易时间、最低金额、到账时间 |
 | ⭐ **基金评级** | 上海证券、招商证券、济安金信、晨星等机构评级 |
 
-### 2. 指数详情查询 ⭐ 新功能
+### 2. 指数查询/估值/风险 ⭐
 
-第二个核心能力是**获取A股指数的完整信息**，包括当前值、业绩表现、估值数据和历史分位：
+第二个核心能力是将指数分析拆分为 `query / valuation / risk` 三段，并支持 `query -d` 一次输出全量信息：
 
 ```bash
 # CLI 方式
-python cli.py index details 000300
+python cli.py index query 000300
+python cli.py index valuation 000300
+python cli.py index risk 000300
+python cli.py index query 000300 -d
 
 # MCP 方式（在 Claude Desktop 中）
 get_index_details(code="000300")
@@ -103,7 +106,7 @@ pip install -r requirements.txt
 ### 2. 初始化本地基金数据库（推荐）
 
 ```bash
-python cli.py update
+python cli.py bond update
 # 从东方财富拉取全量基金列表（26000+）并保存到 fund_database.json
 # 此后 CLI 调用直接读本地文件，搜索速度极快
 ```
@@ -218,11 +221,17 @@ python cli.py bond update
 python cli.py index search "红利"
 python cli.py index search "300"
 
-# 查看指数基本信息
-python cli.py index info 000300
+# 指数查询（基本信息 + 当前值 + 业绩）
+python cli.py index query 000300
 
-# 查看指数完整详情
-python cli.py index details 000300
+# 指数估值
+python cli.py index valuation 000300
+
+# 指数风险
+python cli.py index risk 000300
+
+# 一次输出完整信息
+python cli.py index query 000300 -d
 
 # 批量查询指数详情
 python cli.py index batch 000300 000905 000852
@@ -270,13 +279,21 @@ python cli.py bond update
 python cli.py index search <keyword>
 python cli.py index search "红利" --all
 
-# 查看指数信息
-python cli.py index info <code>
-python cli.py index info 000300
+# 查询基础信息（基本信息 + 当前值 + 业绩）
+python cli.py index query <code>
+python cli.py index query 000300
 
-# 查看指数详情
-python cli.py index details <code>
-python cli.py index details 000300
+# 查询估值模块
+python cli.py index valuation <code>
+python cli.py index valuation 000300
+
+# 查询风险模块
+python cli.py index risk <code>
+python cli.py index risk 000300
+
+# 查询完整信息
+python cli.py index query <code> -d
+python cli.py index query 000300 -d
 
 # 批量查询
 python cli.py index batch <code1> <code2> ...
@@ -306,16 +323,14 @@ python cli.py bond query 000001 --detail
 ### 示例 2：指数估值分析
 
 ```bash
-# 获取指数的完整分析
-python cli.py index details 000300
+# 获取指数估值模块
+python cli.py index valuation 000300
 ```
 
 输出包含：
-- 📊 基本信息（代码、名称、分类）
-- 💹 当前值（收盘点位、涨跌幅）
-- 📈 业绩表现（1周~3年收益率）
 - 💰 估值数据（PE-TTM、PB）
 - 📊 历史分位（3年/5年/10年百分位）
+- 📏 10年历史参考（当前/中位数/最低/最高）
 - 🌡️ 估值温度（低估/合理/高估）
 
 ### 示例 3：批量指数对比
@@ -339,52 +354,52 @@ python cli.py index batch 000300 000905 000852
 
 ```bash
 # 获取完整的投资组合分析（持仓+资产配置）
-python cli.py portfolio 000001
+python cli.py bond portfolio 000001
 ```
 
 ### 专项查询
 
 ```bash
 # 基金业绩
-python cli.py performance 000001
+python cli.py bond performance 000001
 
 # 风险指标
-python cli.py risk 000001
+python cli.py bond risk 000001
 
 # 十大重仓股
-python cli.py top-holdings 000001
+python cli.py bond top-holdings 000001
 
 # 基金经理
-python cli.py manager 000001
+python cli.py bond manager 000001
 
 # 费用明细
-python cli.py fee 000001
+python cli.py bond fee 000001
 
 # 流动性信息
-python cli.py liquidity 000001
+python cli.py bond liquidity 000001
 
 # 基金评级
-python cli.py rating 000001
+python cli.py bond rating 000001
 ```
 
 ### 基础功能
 
 ```bash
 # 更新本地基金数据库
-python cli.py update
+python cli.py bond update
 
 # 搜索基金
-python cli.py search "华夏"
+python cli.py bond search "华夏"
 
 # 排行榜
-python cli.py ranking --type 股票型 --top 10
+python cli.py bond ranking --type 股票型 --top 10
 ```
 
 ### Debug 模式
 
 ```bash
 # 显示详细日志
-python cli.py --debug query 000001
+python cli.py --debug bond query 000001
 ```
 
 ## 📊 数据来源说明
@@ -402,6 +417,12 @@ python cli.py --debug query 000001
 - 如果查询年份为 2025，会获取 2024 + 2025 两年的持仓变化
 
 ## 📁 项目结构
+
+## TODO
+
+- [ ] 新增“候选基金对比表”函数 `compare_index_funds(index_code: str)`，输出字段至少包含：基金代码、名称、管理费、托管费、规模、近1年收益、ETF 成交额、折溢价。
+- [ ] 新增“跟踪误差”函数 `calc_tracking_error(fund_code, index_code, window=252)`，按“基金日收益 - 指数日收益”的年化标准差计算。
+- [ ] 新增 CLI 命令 `python cli.py index funds 000300`，输出候选列表、对比表和简短结论。
 
 ```
 ttjj-fund/
@@ -464,7 +485,7 @@ source .venv/bin/activate
 **基金数据未找到**：
 ```bash
 # 更新本地数据库
-python cli.py update
+python cli.py bond update
 ```
 
 ## 📖 参考资料
@@ -483,9 +504,15 @@ python cli.py update
 
 ---
 
-**版本**: v2.3 | **更新日期**: 2026-04-26
+**版本**: v2.4 | **更新日期**: 2026-04-27
 
 ## 📝 更新日志
+
+### v2.4 (2026-04-27)
+- ♻️ CLI 指数入口重构为 `query / valuation / risk`
+- 🧩 新增 `python cli.py index query <code> -d` 全量输出
+- 🧹 移除旧 `index details` / `index info` CLI 入口
+- 🗑️ 移除 `src/fund_tools/valuation.py`，估值逻辑合并到 `src/fund_tools/index.py`
 
 ### v2.3 (2026-04-26)
 - ✨ **核心功能重构**：合并持仓分析和资产配置为单一函数

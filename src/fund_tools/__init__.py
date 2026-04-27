@@ -20,6 +20,8 @@ from .core import (
     get_fund_portfolio_analysis,
     get_fund_fee_details,
     get_fund_liquidity_info,
+    get_fund_market_metrics,
+    get_index_candidate_funds,
 )
 from . import index
 
@@ -90,6 +92,8 @@ __all__ = [
     "get_fund_portfolio_analysis",
     "get_fund_fee_details",
     "get_fund_liquidity_info",
+    "get_fund_market_metrics",
+    "get_index_candidate_funds",
     # Valuation
     "LG_INDEX_MAP",
     # Index module

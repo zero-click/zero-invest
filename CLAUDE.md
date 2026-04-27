@@ -83,30 +83,37 @@ get_fund_details(code, year, detail=True)
 
 ```bash
 # 更新本地基金数据库（26000+ 基金）
-python cli.py update
+python cli.py bond update
 
 # 搜索基金
-python cli.py search "华夏"
+python cli.py bond search "华夏"
 
 # 查询基金（标准模式）
-python cli.py query 000001
+python cli.py bond query 000001
 
 # 查询基金（完整模式 - 包含所有专业分析）
-python cli.py query 000001 --detail
+python cli.py bond query 000001 --detail
 
 # 投资组合完整分析
-python cli.py portfolio 000001
+python cli.py bond portfolio 000001
 
 # 专项查询
-python cli.py performance 000001
-python cli.py risk 000001
-python cli.py top-holdings 000001
-python cli.py manager 000001
-python cli.py fee 000001
-python cli.py liquidity 000001
+python cli.py bond performance 000001
+python cli.py bond risk 000001
+python cli.py bond top-holdings 000001
+python cli.py bond manager 000001
+python cli.py bond fee 000001
+python cli.py bond liquidity 000001
+
+# 指数查询
+python cli.py index search "红利"
+python cli.py index query 000300
+python cli.py index valuation 000300
+python cli.py index risk 000300
+python cli.py index query 000300 -d
 
 # Debug 模式（显示详细日志）
-python cli.py --debug query 000001
+python cli.py --debug bond query 000001
 ```
 
 ## MCP 服务
@@ -185,20 +192,21 @@ TEST_FUNDS = ["000001", "110022", "163406", "588000", "161725"]
 
 ## 辅助模块
 
-### index_valuation.py
+### src/fund_tools/index.py
 
-**功能：** 指数估值查询（宽基 + 行业指数 PE/PB）
+**功能：** 指数查询与风控（query + valuation + risk）
 
 **数据源：**
-- 乐咕乐股（akshare `stock_index_pe_lg`, `stock_index_pb_lg`）：宽基指数
-- 中证指数（akshare `stock_zh_index_value_csindex`）：行业/主题指数
+- 中证指数（akshare `index_csindex_all`, `stock_zh_index_hist_csindex`, `stock_zh_index_value_csindex`）
+- 乐咕乐股（akshare `stock_index_pe_lg`, `stock_index_pb_lg`）
 
 **核心函数：**
 ```python
-get_index_pe(symbol)                    # 单个宽基指数估值
-get_csindex_valuation(symbol)           # 单个行业指数估值
-get_index_valuation_batch()             # 批量查询
-get_portfolio_index_valuation()         # 投资组合相关指数（一键查询）
+get_index_query(code)                   # 基本信息 + 当前值 + 业绩
+get_index_valuation(code)               # 估值 + 股息率 + 分位 + 口径规则
+get_index_risk(code)                    # 波动率 + 回撤 + 夏普 + 修复周期
+get_index_details(code)                 # 向后兼容包装器（query + valuation）
+get_index_details_batch(codes)          # 批量查询详情
 ```
 
 ### portfolio_analysis.py
@@ -277,7 +285,7 @@ git commit -m "test: 添加投资组合分析测试"
 2. **费率调整**：费率信息可能调整，以基金合同和最新公告为准
 3. **持仓滞后**：持仓数据按季度更新，存在滞后性
 4. **仅供学习**：本服务仅供学习和研究使用，不构成投资建议
-5. **代理设置**：`index_valuation.py` 会移除代理（访问国内网站）
+5. **代理设置**：`src/fund_tools/index.py` 会移除代理（访问国内网站）
 6. **测试环境**：测试会调用真实 API，注意频率限制
 7. **⚠️ akshare 默认时间参数**：某些 akshare 函数有硬编码的默认日期参数（如 `ak.stock_zh_index_hist_csindex` 默认 `end_date="20240604"`），**必须显式传入当前日期**才能获取最新数据。例如：
    ```python
@@ -292,6 +300,6 @@ git commit -m "test: 添加投资组合分析测试"
 
 ---
 
-**最后更新：** 2026-04-26
+**最后更新：** 2026-04-27
 **维护者：** woosley
 **项目状态：** 活跃开发中

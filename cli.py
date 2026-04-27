@@ -37,6 +37,7 @@ from fund_tools import (
     search_indices_all,
     get_index_query,
     get_index_valuation,
+    get_index_candidate_funds,
     get_index_details_batch,
     get_index_risk,
     INDEX_DB_FILE,
@@ -517,6 +518,43 @@ def print_index_risk(risk: dict):
     print(f"  数据点数:  {risk.get('数据点数', 'N/A')}")
 
 
+def print_index_candidate_funds(result: dict, show_all: bool = False):
+    """打印指数候选基金池"""
+    if result.get("status") == "error":
+        print(f"  ❌ {result.get('message')}")
+        return
+
+    index_info = result.get("index", {})
+    funds = result.get("funds", [])
+    count = result.get("count", len(funds))
+    display_count = count if show_all else min(20, count)
+
+    print(f"  指数: {index_info.get('name', '')} ({index_info.get('code', '')})")
+    print(f"  候选基金数量: {count} (显示 {display_count})")
+    aliases = result.get("aliases", [])
+    if aliases:
+        print(f"  匹配关键词: {', '.join(aliases[:8])}")
+    print()
+
+    if not funds:
+        print("  ℹ️  未找到候选基金")
+        return
+
+    print(f"  {'序号':<6}{'基金代码':<10}{'基金名称':<24}{'跟踪方式':<10}{'手续费':<8}")
+    print("  " + "-" * 80)
+    for i, item in enumerate(funds[:display_count], 1):
+        code = str(item.get("基金代码", ""))
+        name = str(item.get("基金名称", ""))
+        track = str(item.get("跟踪方式", ""))
+        fee = str(item.get("手续费", ""))
+        if len(name) > 22:
+            name = name[:19] + "..."
+        print(f"  {i:<6}{code:<10}{name:<24}{track:<10}{fee:<8}")
+
+    if count > display_count:
+        print(f"  ... 还有 {count - display_count} 只基金")
+
+
 def print_portfolio_analysis(result: dict):
     """打印投资组合完整分析"""
     if result.get('status') == 'error':
@@ -700,7 +738,10 @@ def main():
   4. 查看指数风险:
      python cli.py index risk 000300
 
-  5. 批量查询:
+  5. 查看指数候选基金池:
+     python cli.py index listfund 000300
+
+  6. 批量查询:
      python cli.py index batch 000300 000905 000852
 
 项目主页: https://github.com/example/ttjj-fund
@@ -812,6 +853,11 @@ def main():
     # index risk
     index_risk_parser = index_subparsers.add_parser('risk', help='查看指数风险分析')
     index_risk_parser.add_argument('code', type=str, help='6位指数代码')
+
+    # index listfund
+    index_listfund_parser = index_subparsers.add_parser('listfund', help='查看指数候选基金池')
+    index_listfund_parser.add_argument('code', type=str, help='6位指数代码')
+    index_listfund_parser.add_argument('--all', '-a', action='store_true', help='显示所有候选基金')
 
     # index update
     index_subparsers.add_parser('update', help='更新指数数据库')
@@ -1116,6 +1162,14 @@ def main():
 
             risk = get_index_risk(args.code)
             print_index_risk(risk)
+
+        elif args.command == 'listfund':
+            print_banner()
+            print(f"📋 查询指数候选基金池: {args.code}")
+            print()
+
+            result = get_index_candidate_funds(args.code)
+            print_index_candidate_funds(result, show_all=args.all)
 
         else:
             index_subparsers.choices[args.command].print_help()
