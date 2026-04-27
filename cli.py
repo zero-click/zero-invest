@@ -31,18 +31,14 @@ from fund_tools import (
     get_fund_liquidity_info,
     get_fund_list,
     FUND_DB_FILE,
-    # 估值相关
-    get_index_pe,
-    get_csindex_valuation,
-    get_index_valuation_batch,
-    get_portfolio_index_valuation,
     # 指数相关
     get_index_list,
     update_index_cache,
     search_indices_all,
-    get_index_info_by_code,
-    get_index_details,
+    get_index_query,
+    get_index_valuation,
     get_index_details_batch,
+    get_index_risk,
     INDEX_DB_FILE,
 )
 
@@ -268,8 +264,8 @@ def print_index_info(info: dict):
     print(f"  发布日期:  {info.get('publish_date', 'N/A')}")
 
 
-def print_index_details(details: dict):
-    """打印指数完整详情"""
+def print_index_query(details: dict):
+    """打印指数查询数据（基本信息 + 当前值 + 业绩表现）"""
     if details.get('status') == 'error':
         print(f"  ❌ {details.get('message')}")
         return
@@ -309,6 +305,13 @@ def print_index_details(details: dict):
             print(f"  {label}收益率:  {value}%")
         else:
             print(f"  {label}收益率:  N/A")
+
+
+def print_index_valuation(details: dict):
+    """打印指数估值数据"""
+    if details.get('status') == 'error':
+        print(f"  ❌ {details.get('message')}")
+        return
 
     # 估值数据
     print()
@@ -395,6 +398,14 @@ def print_index_details(details: dict):
     print(f"  📈 数据点数:  {details.get('数据点数', 'N/A')}")
 
 
+def print_index_details(details: dict):
+    """打印指数完整详情（兼容旧命令）"""
+    print_index_query(details)
+    if details.get('status') == 'error':
+        return
+    print_index_valuation(details)
+
+
 def print_manager_details(result: dict):
     """打印基金经理详情"""
     if result.get('status') == 'error':
@@ -418,6 +429,92 @@ def print_manager_details(result: dict):
         print(f"    最佳回报: {mgr.get('现任基金最佳回报', 'N/A')}")
         print(f"    现任基金: {mgr.get('现任基金', 'N/A')} ({mgr.get('现任基金代码', 'N/A')})")
         print()
+
+
+def print_index_risk(risk: dict):
+    """打印指数风险分析"""
+    if risk.get('status') == 'error':
+        print(f"  ❌ {risk.get('message')}")
+        return
+
+    print()
+    print("  ⚠️  指数风险分析")
+    print("  " + "-" * 60)
+
+    # 基本信息
+    print(f"  指数代码:  {risk.get('代码', '')}")
+    name = risk.get('名称')
+    if name:
+        print(f"  指数名称:  {name}")
+
+    # 收益率
+    print()
+    print("  📈 收益率")
+    print("  " + "-" * 60)
+    for period in ["近1月收益率", "近3月收益率", "近6月收益率", "近1年收益率"]:
+        value = risk.get(period)
+        if value is not None:
+            print(f"  {period}:  {value}%")
+        else:
+            print(f"  {period}:  N/A")
+
+    # 波动率
+    print()
+    print("  📊 波动率（年化）")
+    print("  " + "-" * 60)
+    for vol_key in ["近1年波动率", "近3年波动率", "历史波动率"]:
+        value = risk.get(vol_key)
+        if value is not None:
+            print(f"  {vol_key}:  {value}%")
+
+    # 最大回撤
+    print()
+    print("  📉 最大回撤")
+    print("  " + "-" * 60)
+    max_dd = risk.get('最大回撤')
+    if max_dd is not None:
+        print(f"  最大回撤幅度:  {max_dd}%")
+        print(f"  回撤开始日期:  {risk.get('回撤开始日期', 'N/A')}")
+        print(f"  回撤最低日期:  {risk.get('回撤最低日期', 'N/A')}")
+        print(f"  回撤持续天数:  {risk.get('回撤持续天数', 'N/A')}")
+        recovery_date = risk.get('回撤修复日期')
+        if recovery_date:
+            print(f"  回撤修复日期:  {recovery_date}")
+            print(f"  回撤修复天数:  {risk.get('回撤修复天数', 'N/A')}")
+        else:
+            unrecovered_days = risk.get('未恢复天数')
+            if unrecovered_days:
+                print(f"  尚未恢复（已过 {unrecovered_days} 天）")
+
+    # 回撤修复分析
+    recovery_analysis = risk.get('回撤修复分析')
+    if recovery_analysis:
+        print()
+        print("  🔁 历史回撤修复周期")
+        print("  " + "-" * 60)
+        print(f"  显著回撤次数:  {recovery_analysis.get('显著回撤次数', 'N/A')}")
+        print(f"  平均修复天数:  {recovery_analysis.get('平均回撤修复天数', 'N/A')}")
+        print(f"  最长修复天数:  {recovery_analysis.get('最长回撤修复天数', 'N/A')}")
+        print(f"  最短修复天数:  {recovery_analysis.get('最短回撤修复天数', 'N/A')}")
+        print(f"  未恢复回撤数:  {recovery_analysis.get('未恢复回撤数', 'N/A')}")
+
+    # 夏普比率
+    sharpe = risk.get('夏普比率')
+    if sharpe is not None:
+        print()
+        print("  📊 夏普比率（风险调整后收益）")
+        print("  " + "-" * 60)
+        print(f"  夏普比率:  {sharpe}")
+        print(f"  说明:  数值越高，单位风险下的超额收益越高")
+        print(f"        >1 为优秀，0.5-1 为良好，<0.5 为一般")
+
+    # 数据范围
+    print()
+    print("  📈 数据范围")
+    print("  " + "-" * 60)
+    print(f"  数据起始日期:  {risk.get('数据起始日期', 'N/A')}")
+    print(f"  数据截止日期:  {risk.get('数据截止日期', 'N/A')}")
+    print(f"  数据点数:  {risk.get('数据点数', 'N/A')}")
 
 
 def print_portfolio_analysis(result: dict):
@@ -593,13 +690,17 @@ def main():
      python cli.py index search "红利"
      python cli.py index search "300"
 
-  2. 查看指数信息:
-     python cli.py index info 000300
+  2. 查看指数详情:
+     python cli.py index query 000300
+     python cli.py index query 000300 -d
 
-  3. 查看指数详情:
-     python cli.py index details 000300
+  3. 查看指数估值:
+     python cli.py index valuation 000300
 
-  4. 批量查询:
+  4. 查看指数风险:
+     python cli.py index risk 000300
+
+  5. 批量查询:
      python cli.py index batch 000300 000905 000852
 
 项目主页: https://github.com/example/ttjj-fund
@@ -694,17 +795,23 @@ def main():
     index_search_parser.add_argument('keyword', type=str, help='搜索关键词（指数代码/名称）')
     index_search_parser.add_argument('--all', '-a', action='store_true', help='显示所有结果')
 
-    # index info
-    index_info_parser = index_subparsers.add_parser('info', help='查看指数基本信息')
-    index_info_parser.add_argument('code', type=str, help='6位指数代码')
+    # index query
+    index_query_parser = index_subparsers.add_parser('query', help='查看指数查询信息（基本信息、当前值、业绩）')
+    index_query_parser.add_argument('code', type=str, help='6位指数代码')
+    index_query_parser.add_argument('--detail', '-d', action='store_true',
+                                   help='显示完整信息（额外包含估值和风险分析）')
 
-    # index details
-    index_details_parser = index_subparsers.add_parser('details', help='查看指数完整详情')
-    index_details_parser.add_argument('code', type=str, help='6位指数代码')
+    # index valuation
+    index_valuation_parser = index_subparsers.add_parser('valuation', help='查看指数估值信息')
+    index_valuation_parser.add_argument('code', type=str, help='6位指数代码')
 
     # index batch
     index_batch_parser = index_subparsers.add_parser('batch', help='批量查询指数详情')
     index_batch_parser.add_argument('codes', type=str, nargs='+', help='指数代码列表（多个代码用空格分隔）')
+
+    # index risk
+    index_risk_parser = index_subparsers.add_parser('risk', help='查看指数风险分析')
+    index_risk_parser.add_argument('code', type=str, help='6位指数代码')
 
     # index update
     index_subparsers.add_parser('update', help='更新指数数据库')
@@ -961,21 +1068,25 @@ def main():
             else:
                 print_index_search_results(results, show_all=args.all)
 
-        elif args.command == 'info':
+        elif args.command == 'query':
             print_banner()
-            print(f"📊 查询指数基本信息: {args.code}")
+            print(f"📊 查询指数: {args.code}")
             print()
 
-            info = get_index_info_by_code(args.code)
-            print_index_info(info)
+            query = get_index_query(args.code)
+            print_index_query(query)
 
-        elif args.command == 'details':
+            if args.detail and query.get("status") == "success":
+                print_index_valuation(get_index_valuation(args.code))
+                print_index_risk(get_index_risk(args.code))
+
+        elif args.command == 'valuation':
             print_banner()
-            print(f"📊 查询指数完整详情: {args.code}")
+            print(f"💰 查询指数估值: {args.code}")
             print()
 
-            details = get_index_details(args.code)
-            print_index_details(details)
+            valuation = get_index_valuation(args.code)
+            print_index_valuation(valuation)
 
         elif args.command == 'batch':
             print_banner()
@@ -997,6 +1108,14 @@ def main():
                 print(f"✅ 指数数据库更新成功！共 {total} 个指数，已保存到 {INDEX_DB_FILE}")
             else:
                 print("❌ 指数数据库更新失败")
+
+        elif args.command == 'risk':
+            print_banner()
+            print(f"⚠️  查询指数风险分析: {args.code}")
+            print()
+
+            risk = get_index_risk(args.code)
+            print_index_risk(risk)
 
         else:
             index_subparsers.choices[args.command].print_help()

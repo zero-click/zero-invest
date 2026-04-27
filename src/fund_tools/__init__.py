@@ -21,15 +21,6 @@ from .core import (
     get_fund_fee_details,
     get_fund_liquidity_info,
 )
-from .valuation import (
-    get_index_pe,
-    get_csindex_valuation,
-    get_index_valuation_batch,
-    get_portfolio_index_valuation,
-    compare_fund_with_index,
-    LG_INDEX_MAP,
-    CSINDEX_MAP,
-)
 from . import index
 
 # 从 index 模块导入所有指数相关函数
@@ -38,8 +29,12 @@ from .index import (
     fetch_indices_from_csindex,
     search_indices as _search_indices,
     get_index_info as _get_index_info,
+    LG_INDEX_MAP,
+    get_index_query,
+    get_index_valuation,
     get_index_details,
     get_index_details_batch,
+    get_index_risk,
     # 便捷函数
     get_broad_indices,
     get_industry_indices,
@@ -96,13 +91,7 @@ __all__ = [
     "get_fund_fee_details",
     "get_fund_liquidity_info",
     # Valuation
-    "get_index_pe",
-    "get_csindex_valuation",
-    "get_index_valuation_batch",
-    "get_portfolio_index_valuation",
-    "compare_fund_with_index",
     "LG_INDEX_MAP",
-    "CSINDEX_MAP",
     # Index module
     "index",
     "fetch_indices_from_csindex",
@@ -116,8 +105,11 @@ __all__ = [
     "search_indices_all",
     "get_index_info",
     "get_index_info_by_code",
+    "get_index_query",
+    "get_index_valuation",
     "get_index_details",
     "get_index_details_batch",
+    "get_index_risk",
 ]
 
 __version__ = "2.0.0"
