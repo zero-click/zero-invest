@@ -1,31 +1,31 @@
-# 中国基金信息查询 MCP 服务
+# ttjj-fund
 
-基于 **akshare** 和 **MCP Python SDK** 的中国公募基金数据查询服务，可作为 **MCP 工具**接入 Claude Desktop，也可作为**独立 CLI** 使用。
+中国公募基金与 A 股指数信息查询工具，基于 `akshare` 和 MCP Python SDK。项目同时提供命令行 CLI 和 MCP 服务，适合做基金研究、指数估值查询、候选指数基金筛选和本地数据缓存。
 
-主要功能：
-- **基金搜索与详情** — 按代码/名称/拼音搜索，查询净值、业绩、风险指标、十大重仓股
-- **专业分析** — 基金经理背景、持仓集中度与季度变化、行业配置、费用明细、流动性信息
-- **排行榜与评级** — 各类型基金业绩排行、上海证券/招商证券/晨星等多家机构评级
-- **指数估值** — 宽基与行业指数 PE/PB 历史分位（10年/5年/3年）、估值温度计
+## 主要功能
 
-## ✨ 特性
+### 基金分析
 
-- 🎯 **标准化 MCP 实现** - 使用官方 MCP Python SDK（FastMCP）
-- 📊 **丰富的基金数据** - 实时净值、历史业绩、持仓分析、风险指标
-- 🔬 **专业分析工具** - 基金经理、持仓动态、资产配置、费用、流动性深度分析
-- 💹 **指数估值** - 宽基/行业指数 PE/PB 历史分位、估值温度计
-- 💾 **本地磁盘缓存** - 基金列表缓存到本地 JSON（7天 TTL），CLI 调用无需重复联网
-- 🔌 **多种传输协议** - 支持 stdio、streamable-http
+- 基金搜索：按代码、名称、拼音搜索公募基金。
+- 基金详情：查询基金基本信息、规模、基金经理、成立日期、类型。
+- 业绩表现：近 1 周、1 月、3 月、6 月、1 年、3 年、今年、成立以来收益。
+- 风险指标：标准差、夏普比率、最大回撤等。
+- 持仓分析：十大重仓股、持仓集中度、季度持仓变化。
+- 资产配置：行业配置、股票/债券持仓样本。
+- 费用信息：管理费、托管费、申购费、赎回费。
+- 流动性与评级：申赎状态、到账时间、机构评级。
 
-## 🛠️ 技术栈
+### 指数管理
 
-- **MCP Python SDK** - Model Context Protocol 官方实现
-- **akshare** - 中国金融数据接口
-- **pandas/numpy** - 数据处理
+- 多源指数数据库：聚合中证指数、东方财富、Sina、akshare 指数信息表并本地缓存。
+- 指数搜索：按代码或名称搜索宽基、行业、主题、策略、风格等指数。
+- 指数查询：基本信息、当前点位、涨跌幅、历史收益。
+- 指数估值：PE-TTM、PB、股息率、历史分位、估值温度。
+- 指数风险：波动率、最大回撤、回撤修复周期、夏普比率。
+- 候选基金池：根据指数匹配相关指数基金。
+- 估值热力图：输出宽基和行业估值表，支持按 PE、PB、股息率、估值等级排序。
 
-## 📦 快速开始
-
-### 1. 安装依赖
+## 安装
 
 ```bash
 python3 -m venv .venv
@@ -33,34 +33,112 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. 初始化本地基金数据库（推荐）
+## 初始化缓存
 
 ```bash
-python fund_tool_akshare.py update
-# 从东方财富拉取全量基金列表并保存到 fund_database.json
-# 此后 CLI 调用直接读本地文件，无需联网
+# 更新基金数据库
+python cli.py bond update
+
+# 更新指数数据库
+python cli.py index update
 ```
 
-### 3. 启动 MCP 服务
+缓存文件会写到项目根目录：
+
+- `fund_database.json`
+- `index_database.json`
+
+## CLI 使用
+
+### 基金命令
 
 ```bash
-# 方式一：交互式启动脚本（可选传输协议）
-./start_mcp.sh
+# 搜索基金
+python cli.py bond search "华夏"
+python cli.py bond search "沪深300" --all
 
-# 方式二：直接运行（streamable-http，默认端口 8000）
+# 查询基金
+python cli.py bond query 000001
+python cli.py bond query 000001 --detail
+
+# 基金排行榜
+python cli.py bond ranking --type 股票型 --top 10
+
+# 专项查询
+python cli.py bond performance 000001
+python cli.py bond risk 000001
+python cli.py bond top-holdings 000001
+python cli.py bond manager 000001
+python cli.py bond fee 000001
+python cli.py bond liquidity 000001
+python cli.py bond rating 000001
+
+# 投资组合分析
+python cli.py bond holdings 000001
+python cli.py bond allocation 000001
+python cli.py bond portfolio 000001
+
+# 更新基金数据库
+python cli.py bond update
+```
+
+### 指数命令
+
+```bash
+# 更新多源指数数据库
+python cli.py index update
+
+# 搜索指数
+python cli.py index search "红利"
+python cli.py index search "上证50" --all
+
+# 查询指数基本信息、当前值、业绩
+python cli.py index query 000300
+
+# 查询完整指数信息：query + valuation + risk
+python cli.py index query 000300 -d
+
+# 查询估值
+python cli.py index valuation 000300
+
+# 查询风险
+python cli.py index risk 000300
+
+# 批量查询
+python cli.py index batch 000300 000905 000852
+
+# 查询指数候选基金池
+python cli.py index listfund 000300
+python cli.py index listfund 000300 --all
+
+# 估值热力图
+python cli.py index heatmap
+python cli.py index heatmap --sort-by pb --limit 20
+python cli.py index heatmap --category 宽基 --sort-by pe --limit 30
+```
+
+### Debug 模式
+
+```bash
+python cli.py --debug bond query 000001
+python cli.py --debug index valuation 000300
+```
+
+## MCP 使用
+
+启动 MCP 服务：
+
+```bash
+./start_mcp.sh
+```
+
+或直接运行：
+
+```bash
 python fund_mcp_server.py
 ```
 
-用 MCP Inspector 调试：
-
-```bash
-npx -y @modelcontextprotocol/inspector
-# 连接到: http://localhost:8000/mcp
-```
-
-### 4. 配置 Claude Desktop
-
-编辑 `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Claude Desktop 配置示例：
 
 ```json
 {
@@ -73,124 +151,84 @@ npx -y @modelcontextprotocol/inspector
 }
 ```
 
-将 `/path/to/ttjj-fund` 替换为实际路径，重启 Claude Desktop 即可使用。
+将 `/path/to/ttjj-fund` 替换为本地项目路径。
 
-## 🛠️ 可用工具（MCP）
+## 数据来源
 
-| 工具 | 说明 |
-|------|------|
-| `search_funds` | 按代码、名称、拼音搜索基金 |
-| `get_fund_details` | 净值、业绩、持仓、风险指标 |
-| `get_fund_rankings` | 各类型基金业绩排行榜 |
-| `get_fund_rating` | 上海证券、招商证券、济安金信等评级 |
-| `get_fund_manager_details` | 经理从业年限、管理规模、最佳回报 |
-| `get_fund_holdings_analysis` | 持仓集中度、季度持仓变化趋势 |
-| `get_fund_asset_allocation` | 行业配置、股债持仓分布 |
-| `get_fund_fee_details` | 认购/申购/赎回/管理/托管费率 |
-| `get_fund_liquidity_info` | 申赎状态、到账时间、最低申购额 |
-| `refresh_fund_cache` | 强制刷新本地基金数据库 |
+- 基金列表、基金详情、费率、持仓、排行：东方财富、天天基金等 akshare 数据源。
+- 指数列表：中证指数、东方财富指数实时行情、Sina 指数实时行情、akshare 指数信息表。
+- 指数历史行情：优先使用中证指数，缺失时 fallback 到东方财富 `index_zh_a_hist`。
+- 宽基估值分位：乐咕乐股 PE/PB 数据。
+- 行业估值：证监会行业 PE 数据、申万行业估值数据等 akshare 数据源。
 
-## 💹 指数估值（`index_valuation.py`）
+数据依赖第三方公开接口，可能存在延迟、缺失、接口变更或临时不可用。
 
-```python
-from index_valuation import get_index_pe, get_portfolio_index_valuation
-
-# 单个指数（PE/PB + 10/5/3年历史分位）
-result = get_index_pe("沪深300")
-
-# 一键获取投资组合相关所有指数估值
-result = get_portfolio_index_valuation()
-```
-
-支持的宽基指数：沪深300、中证500、中证1000、上证50、创业板50 等。
-支持的行业指数：科创50、中证军工、有色金属、中证白酒、全指医药、中证半导 等。
-
-## 💻 命令行使用
+## 测试
 
 ```bash
-# 更新本地基金数据库
-python fund_tool_akshare.py update
+# 运行全部测试
+pytest tests -v
 
-# 搜索基金
-python fund_tool_akshare.py search "华夏"
+# 多源指数缓存单元测试
+pytest -q tests/test_index_cache_multisource.py
 
-# 查询基金详情
-python fund_tool_akshare.py query 000001
-python fund_tool_akshare.py query 000001 --detail   # 含所有专业分析
-
-# 排行榜
-python fund_tool_akshare.py ranking --type 股票型 --top 10
-
-# 评级
-python fund_tool_akshare.py rating 000001
-
-# 专项分析
-python fund_tool_akshare.py manager 000001
-python fund_tool_akshare.py holdings 000001 --periods 4
-python fund_tool_akshare.py allocation 000001 --year 2024
-python fund_tool_akshare.py fee 000001
-python fund_tool_akshare.py liquidity 000001
+# 指数热力图集成测试，需要网络
+pytest -q tests/test_industry_heatmap.py -m integration
 ```
 
-## 📁 项目结构
+项目测试包含真实网络请求。运行集成测试前需要确认网络可访问对应数据源。
 
-```
+## 项目结构
+
+```text
 ttjj-fund/
-├── fund_tool_akshare.py    # 核心数据获取逻辑 + CLI
-├── fund_mcp_server.py      # MCP 服务器
-├── index_valuation.py      # 指数估值模块（PE/PB历史分位）
-├── requirements.txt
-├── start_mcp.sh
-├── pytest.ini
-├── tests/
-│   ├── conftest.py
-│   ├── test_fund_tool.py
-│   └── test_index_valuation.py
-└── README.md
+├── cli.py                         # CLI 入口
+├── fund_mcp_server.py             # MCP 服务入口
+├── requirements.txt               # Python 依赖
+├── start_mcp.sh                   # MCP 启动脚本
+├── src/fund_tools/
+│   ├── cache.py                   # 基金/指数本地缓存
+│   ├── core.py                    # 基金查询与分析
+│   ├── index.py                   # 指数查询、估值、风险
+│   └── industry_valuation.py      # 指数估值热力图
+└── tests/                         # 单元测试与集成测试
 ```
 
-## 🧪 测试
+## 注意事项
 
-```bash
-# 运行所有测试
-pytest
+- 本项目仅用于学习和研究，不构成投资建议。
+- 基金费率、规模、持仓、评级等信息以基金公司公告和销售渠道披露为准。
+- 持仓数据通常按季度更新，存在滞后。
+- 第三方数据接口可能临时失败；CLI 会尽量降级处理，但不能保证所有字段始终可用。
+- 如果使用代理环境变量访问国内数据源出现连接异常，可以先清理 `http_proxy`、`https_proxy` 等环境变量。
 
-# 运行特定模块
-pytest tests/test_fund_tool.py -v
-pytest tests/test_index_valuation.py -v
+## Changelog
 
-# 覆盖率报告
-pytest --cov=fund_tool_akshare --cov-report=html
-```
+### 2026-04-27
 
-## 🔧 故障排除
+- 新增多源指数数据库缓存，合并中证指数、东方财富、Sina 和 akshare 指数信息表。
+- 修复单一指数源无法覆盖上证50、创业板50等常见指数的问题。
+- 新增指数历史行情 fallback：中证历史行情缺失时使用东方财富历史行情。
+- 新增 `python cli.py index heatmap` 指数估值热力图。
+- 将行业估值热力图迁移到 `src/fund_tools/industry_valuation.py`。
+- 删除旧的根目录 `index_valuation.py`、`industry_valuation.py`。
 
-**SSL 证书错误**：雪球网数据接口偶发 SSL 错误，不影响核心功能（东方财富数据源正常）。
+### 2026-04-26
 
-**依赖安装失败**：
-```bash
-pip install --upgrade pip && pip install -r requirements.txt
-```
+- 重构指数 CLI 为 `query / valuation / risk`。
+- 新增 `python cli.py index query <code> -d` 完整指数输出。
+- 移除旧的 `index details`、`index info` 入口。
+- 移除旧 `src/fund_tools/valuation.py`，估值逻辑合并到 `src/fund_tools/index.py`。
 
-**虚拟环境未激活**：
-```bash
-source .venv/bin/activate
-```
+### 2026-04-19
 
-## 📖 参考资料
+- 初始 MCP 服务和 CLI 工具。
+- 支持基金搜索、基金详情、持仓、费用、风险和评级查询。
 
-- [MCP 官方文档](https://modelcontextprotocol.io/)
-- [MCP Python SDK](https://modelcontextprotocol.github.io/python-sdk/)
-- [akshare 文档](https://akshare.akfamily.xyz/)
+## Author
 
-## ⚠️ 注意事项
+zero-click
 
-1. 部分数据可能存在延迟，具体以基金公司公告为准
-2. 费率信息可能调整，请以基金合同和最新公告为准
-3. 持仓数据通常按季度更新，存在一定滞后性
-4. 本服务仅供学习和研究使用，不构成投资建议
+## License
 
----
-
-**版本**: v2.2 | **更新日期**: 2026-04-19
-
+MIT License. 这是一个宽松的开源协议，允许使用、复制、修改、合并、发布、分发、再授权和商业使用，但需要保留版权声明和许可声明。

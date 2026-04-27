@@ -96,7 +96,7 @@ echo -e "${BLUE}🔄 预热数据缓存（可选）...${NC}"
 read -p "是否预热数据？这可能需要10-30秒 (y/N) " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    python3 -c "import fund_tool_akshare as tool; tool.get_fund_list()" && {
+    python3 -c "from src.fund_tools import get_fund_list; get_fund_list()" && {
         echo -e "${GREEN}✅ 数据预热完成${NC}"
     } || {
         echo -e "${YELLOW}⚠️  数据预热失败，服务启动时将自动加载${NC}"
