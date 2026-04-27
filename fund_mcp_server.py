@@ -381,98 +381,41 @@ def get_industry_valuation_heatmap(
         category: 行业分类筛选（全部/宽基/科技/成长/消费/医药/资源/金融/军工/红利）
         sort_by: 排序方式（pe/pb/dividend/valuation）
         limit: 返回结果数量限制，默认20
-        include_suggestions: 是否包含投资建议，默认False
+        include_suggestions: 兼容旧参数，当前版本忽略
 
     Returns:
         行业估值热力图数据，包括：
         - 行业列表（名称、分类、PE、PB、股息率、估值等级）
         - 统计摘要
-        - 投资建议（如果include_suggestions=True）
     """
     logger.info(f"📈 获取行业估值热力图 | 分类: {category} | 排序: {sort_by}")
 
     try:
-        # 导入行业估值模块
-        from industry_valuation import (
-            get_valuation_heatmap,
-            get_investment_suggestions
-        )
-        
-        # 获取热力图数据
-        heatmap_data = get_valuation_heatmap()
-        
-        # 提取所有行业数据
-        all_industries = []
-        for cat, industries in heatmap_data["heatmap"].items():
-            if category != "全部" and cat != category:
-                continue
-                
-            for name, data in industries.items():
-                pe = data.get("滚动PE") or data.get("静态PE")
-                pb = data.get("PB")
-                dy = data.get("股息率")
-                
-                # 估值等级判断
-                if pe is None:
-                    valuation = "N/A"
-                elif pe < 15:
-                    valuation = "低"
-                elif pe < 25:
-                    valuation = "中"
-                elif pe < 40:
-                    valuation = "高"
-                else:
-                    valuation = "极高"
-                
-                all_industries.append({
-                    "行业名称": name,
-                    "行业分类": cat,
-                    "PE": pe,
-                    "PB": pb,
-                    "股息率": dy,
-                    "估值等级": valuation,
-                    "原始数据": data
-                })
-        
-        # 排序
-        if sort_by == "pe":
-            all_industries.sort(key=lambda x: x["PE"] if x["PE"] is not None else float('inf'))
-        elif sort_by == "pb":
-            all_industries.sort(key=lambda x: x["PB"] if x["PB"] is not None else float('inf'))
-        elif sort_by == "dividend":
-            all_industries.sort(key=lambda x: x["股息率"] if x["股息率"] is not None else -float('inf'), reverse=True)
-        elif sort_by == "valuation":
-            # 估值等级排序：低->中->高->极高
-            valuation_order = {"低": 1, "中": 2, "高": 3, "极高": 4, "N/A": 5}
-            all_industries.sort(key=lambda x: valuation_order.get(x["估值等级"], 5))
-        
-        # 限制数量
-        all_industries = all_industries[:limit]
-        
-        # 准备返回结果
+        heatmap_data = fund_tool.get_valuation_heatmap(category=category, sort_by=sort_by)
+        industries = [
+            {
+                "行业名称": item.get("名称"),
+                "行业分类": item.get("分类"),
+                "PE": item.get("PE"),
+                "PB": item.get("PB"),
+                "股息率": item.get("股息率"),
+                "估值等级": item.get("估值温度"),
+                "原始数据": item,
+            }
+            for item in heatmap_data.get("data", [])[:limit]
+        ]
+
         result = {
             "success": True,
             "category": category,
             "sort_by": sort_by,
-            "total_industries": len(all_industries),
-            "industries": all_industries,
+            "total_industries": len(industries),
+            "industries": industries,
             "summary": heatmap_data["summary"]
         }
-        
-        # 添加投资建议
-        if include_suggestions:
-            suggestions = get_investment_suggestions(heatmap_data)
-            result["investment_suggestions"] = suggestions
-        
-        logger.info(f"✅ 成功获取 {len(all_industries)} 个行业的估值数据")
+
+        logger.info(f"✅ 成功获取 {len(industries)} 个行业的估值数据")
         return result
-        
-    except ImportError as e:
-        logger.error(f"❌ 导入行业估值模块失败: {e}")
-        return {
-            "success": False,
-            "error": f"导入行业估值模块失败: {str(e)}"
-        }
     except Exception as e:
         logger.error(f"❌ 获取行业估值热力图失败: {e}")
         return {

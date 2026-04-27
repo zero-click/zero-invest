@@ -50,6 +50,9 @@ TEST_INDICES = {
 class TestIndexCache:
     """测试指数缓存功能（真实网络请求）"""
 
+    def setup_method(self):
+        get_index_list.cache_clear()
+
     def test_get_index_list_returns_data(self):
         """测试获取指数列表返回数据"""
         data = get_index_list()
@@ -115,6 +118,18 @@ class TestIndexCache:
         assert os.path.exists(INDEX_DB_FILE)
 
         print(f"✅ 缓存更新成功: {new_data['total']} 个指数")
+
+    def test_merged_cache_contains_missing_common_indices(self):
+        """测试聚合缓存补进常见宽基指数"""
+        data = get_index_list()
+        all_indices = []
+        for key, value in data.items():
+            if isinstance(value, list):
+                all_indices.extend(value)
+
+        codes = {item.get("code") for item in all_indices}
+        assert "000016" in codes, "缓存中应包含上证50"
+        assert "399673" in codes, "缓存中应包含创业板50"
 
 
 # ============================================================================

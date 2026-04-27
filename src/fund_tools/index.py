@@ -15,7 +15,7 @@
 
 import os
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
 import akshare as ak
@@ -54,6 +54,60 @@ LG_INDEX_MAP = {
     "深证100": "深证100",
     "上证红利": "上证红利",
 }
+
+
+def get_csrc_industry_pe_snapshot(lookback_days: int = 30) -> List[Dict[str, Any]]:
+    """
+    获取最近可用的证监会行业 PE 快照
+
+    Args:
+        lookback_days: 向前回溯天数，默认 30 天
+
+    Returns:
+        行业估值快照列表
+    """
+    for days_back in range(max(1, lookback_days)):
+        target_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+        try:
+            df = ak.stock_industry_pe_ratio_cninfo(
+                symbol="证监会行业分类",
+                date=target_date,
+            )
+        except Exception as e:
+            logger.debug(f"获取证监会行业 PE 失败 ({target_date}): {e}")
+            continue
+
+        if df is None or df.empty:
+            continue
+
+        results: List[Dict[str, Any]] = []
+        snapshot_date = str(df.iloc[0].get("变动日期", target_date))
+        for _, row in df.iterrows():
+            industry_name = str(row.get("行业名称", "")).strip()
+            if not industry_name or industry_name == "中国上市公司协会上市公司行业分类标准":
+                continue
+
+            pe_weighted = pd.to_numeric(row.get("静态市盈率-加权平均"), errors="coerce")
+            pe_median = pd.to_numeric(row.get("静态市盈率-中位数"), errors="coerce")
+            pe_value = pe_weighted if pd.notna(pe_weighted) else pe_median
+            if pd.isna(pe_value):
+                continue
+
+            results.append(
+                {
+                    "行业名称": industry_name,
+                    "日期": snapshot_date,
+                    "静态PE": round(float(pe_value), 2),
+                    "静态PE_中位数": round(float(pe_median), 2) if pd.notna(pe_median) else None,
+                    "静态PE_加权平均": round(float(pe_weighted), 2) if pd.notna(pe_weighted) else None,
+                    "数据源": "证监会行业",
+                }
+            )
+
+        if results:
+            return results
+
+    return []
 
 def _classify_index(index_class: str, asset_class: str) -> str:
     """
@@ -406,13 +460,30 @@ def _fetch_index_history_data(code: str) -> Optional[pd.DataFrame]:
         df_hist = ak.stock_zh_index_hist_csindex(symbol=code, end_date=end_date)
 
         if df_hist is None or df_hist.empty:
-            return None
+            raise ValueError("csindex history empty")
 
         df_hist["日期"] = pd.to_datetime(df_hist["日期"])
         return df_hist
 
     except Exception as e:
-        logger.warning(f"获取指数 {code} 历史行情失败: {e}")
+        logger.debug(f"获取指数 {code} 中证历史行情失败: {e}")
+
+    # 备用：东方财富中国股票指数
+    try:
+        end_date = datetime.now().strftime("%Y%m%d")
+        df_hist = ak.index_zh_a_hist(
+            symbol=code,
+            period="daily",
+            start_date="19900101",
+            end_date=end_date,
+        )
+        if df_hist is None or df_hist.empty:
+            return None
+
+        df_hist["日期"] = pd.to_datetime(df_hist["日期"], errors="coerce")
+        return df_hist
+    except Exception as e:
+        logger.warning(f"获取指数 {code} 东财历史行情失败: {e}")
         return None
 
 
@@ -1017,7 +1088,7 @@ def get_all_stock_indices() -> List[Dict]:
     from . import get_index_list
     data = get_index_list()
     all_indices = []
-    for cat in ["broad", "industry", "sector", "strategy", "style"]:
+    for cat in ["broad", "industry", "sector", "strategy", "style", "other"]:
         all_indices.extend(data.get(cat, []))
     return all_indices
 

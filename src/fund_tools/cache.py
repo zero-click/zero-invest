@@ -25,6 +25,23 @@ FUND_DB_TTL = 7 * 24 * 3600  # 7天过期
 # 指数缓存
 INDEX_DB_FILE = os.path.join(BASE_DIR, "index_database.json")
 INDEX_DB_TTL = 30 * 24 * 3600  # 30天过期
+INDEX_DB_SCHEMA_VERSION = 2
+
+# 常见宽基指数的补充映射
+_EXTRA_BROAD_INDEXES = {
+    "000300": {"name": "沪深300", "index_class": "规模", "publish_date": "2005-04-08"},
+    "000905": {"name": "中证500", "index_class": "规模", "publish_date": "2007-01-15"},
+    "000852": {"name": "中证1000", "index_class": "规模", "publish_date": "2014-10-31"},
+    "000016": {"name": "上证50", "index_class": "规模", "publish_date": "2004-01-02"},
+    "399673": {"name": "创业板50", "index_class": "规模", "publish_date": "2014-06-18"},
+    "000015": {"name": "上证红利", "index_class": "风格", "publish_date": "2006-11-20"},
+    "000922": {"name": "中证红利", "index_class": "风格", "publish_date": "2008-01-02"},
+    "000010": {"name": "上证180", "index_class": "规模", "publish_date": "2002-07-01"},
+    "000009": {"name": "上证380", "index_class": "规模", "publish_date": "2010-11-15"},
+    "000903": {"name": "中证100", "index_class": "规模", "publish_date": "2005-01-04"},
+    "000906": {"name": "中证800", "index_class": "规模", "publish_date": "2007-01-15"},
+    "399330": {"name": "深证100", "index_class": "规模", "publish_date": "2006-01-24"},
+}
 
 
 def _load_fund_db_from_disk() -> pd.DataFrame:
@@ -95,6 +112,10 @@ def _load_index_db_from_disk() -> Dict:
         with open(INDEX_DB_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        if data.get("cache_version") != INDEX_DB_SCHEMA_VERSION:
+            logger.info("本地指数数据库版本过旧，需要重建")
+            return {}
+
         total = sum(len(v) if isinstance(v, list) else 0 for v in data.values())
         logger.info(f"从本地缓存加载指数数据库: {total} 个指数")
         return data
@@ -112,6 +133,236 @@ def _save_index_db_to_disk(data: Dict) -> None:
         logger.info(f"指数数据库已保存到 {INDEX_DB_FILE}")
     except Exception as e:
         logger.warning(f"保存本地指数数据库失败: {e}")
+
+
+def _normalize_index_code(code: str) -> str:
+    """统一指数代码格式"""
+    raw = str(code).strip()
+    if not raw:
+        return ""
+    if raw.lower().startswith(("sh", "sz")) and len(raw) > 2:
+        raw = raw[2:]
+    if raw.isdigit():
+        return raw.zfill(6)
+    return raw
+
+
+def _append_index_record(bucket: Dict[str, Dict], record: Dict) -> None:
+    """按代码合并指数记录"""
+    code = _normalize_index_code(record.get("code", ""))
+    if not code:
+        return
+
+    merged = dict(bucket.get(code, {}))
+    merged["code"] = code
+
+    for key, value in record.items():
+        if key == "code":
+            continue
+        if value in ("", None, [], {}):
+            continue
+        if key == "sources":
+            existing = merged.get("sources", [])
+            merged["sources"] = sorted(set(existing) | set(value))
+            continue
+        if not merged.get(key):
+            merged[key] = value
+
+    sources = set(merged.get("sources", []))
+    source = record.get("source")
+    if source:
+        sources.add(source)
+    if sources:
+        merged["sources"] = sorted(sources)
+
+    bucket[code] = merged
+
+
+def _infer_extra_category(code: str, name: str) -> Dict[str, str]:
+    """给无法从中证指数分类的常见宽基补一个类别"""
+    code = _normalize_index_code(code)
+    meta = _EXTRA_BROAD_INDEXES.get(code)
+    if meta:
+        return {
+            "category": "broad",
+            "index_class": meta["index_class"],
+            "base_date": "",
+            "publish_date": meta["publish_date"],
+        }
+    return {
+        "category": "other",
+        "index_class": "",
+        "base_date": "",
+        "publish_date": "",
+    }
+
+
+def _build_index_record(
+    code: str,
+    name: str,
+    *,
+    category: str = "",
+    index_class: str = "",
+    asset_class: str = "股票",
+    base_date: str = "",
+    publish_date: str = "",
+    source: str = "",
+    **extra: Dict,
+) -> Dict:
+    """统一指数记录字段"""
+    code = _normalize_index_code(code)
+    record = {
+        "code": code,
+        "name": str(name).strip(),
+        "category": category,
+        "index_class": index_class,
+        "asset_class": asset_class,
+        "base_date": base_date,
+        "publish_date": publish_date,
+        "source": source,
+    }
+    for key, value in extra.items():
+        if value not in ("", None, [], {}):
+            record[key] = value
+    return record
+
+
+def _fetch_index_spot_sources() -> List[Dict]:
+    """
+    从东方财富/新浪/指数信息表聚合股票指数列表
+
+    Returns:
+        {code: merged_record}
+    """
+    merged: Dict[str, Dict] = {}
+
+    # 1) 东方财富实时行情
+    try:
+        spot_em = ak.stock_zh_index_spot_em()
+        for _, row in spot_em.iterrows():
+            code = _normalize_index_code(row.get("代码", ""))
+            if not code:
+                continue
+            name = str(row.get("名称", "")).strip()
+            category_info = _infer_extra_category(code, name)
+            _append_index_record(
+                merged,
+                _build_index_record(
+                    code,
+                    name,
+                    category=category_info["category"],
+                    index_class=category_info["index_class"],
+                    source="eastmoney_spot_em",
+                    latest_price=row.get("最新价"),
+                    change_pct=row.get("涨跌幅"),
+                    turnover=row.get("成交额"),
+                ),
+            )
+    except Exception as e:
+        logger.warning(f"获取东方财富指数实时行情失败: {e}")
+
+    # 2) 新浪实时行情
+    try:
+        spot_sina = ak.stock_zh_index_spot_sina()
+        for _, row in spot_sina.iterrows():
+            raw_code = str(row.get("代码", "")).strip()
+            code = _normalize_index_code(raw_code)
+            if not code:
+                continue
+            name = str(row.get("名称", "")).strip()
+            category_info = _infer_extra_category(code, name)
+            _append_index_record(
+                merged,
+                _build_index_record(
+                    code,
+                    name,
+                    category=category_info["category"],
+                    index_class=category_info["index_class"],
+                    source="sina_spot",
+                    latest_price=row.get("最新价"),
+                    change_pct=row.get("涨跌幅"),
+                    turnover=row.get("成交额"),
+                ),
+            )
+    except Exception as e:
+        logger.warning(f"获取新浪指数实时行情失败: {e}")
+
+    # 3) 指数信息表，补充发布日期
+    try:
+        info_df = ak.index_stock_info()
+        for _, row in info_df.iterrows():
+            code = _normalize_index_code(row.get("index_code", ""))
+            if not code:
+                continue
+            name = str(row.get("display_name", "")).strip()
+            category_info = _infer_extra_category(code, name)
+            _append_index_record(
+                merged,
+                _build_index_record(
+                    code,
+                    name,
+                    category=category_info["category"],
+                    index_class=category_info["index_class"],
+                    source="index_stock_info",
+                    publish_date=str(row.get("publish_date", "")).strip(),
+                ),
+            )
+    except Exception as e:
+        logger.warning(f"获取指数信息表失败: {e}")
+
+    return list(merged.values())
+
+
+def _fetch_csindex_source() -> List[Dict]:
+    """获取中证指数列表并标准化"""
+    from . import index as index_module
+
+    records: List[Dict] = []
+    data = index_module.fetch_indices_from_csindex()
+    for category, items in data.items():
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            records.append(
+                _build_index_record(
+                    item.get("code", ""),
+                    item.get("name", ""),
+                    category=category,
+                    index_class=item.get("index_class", ""),
+                    asset_class=item.get("asset_class", "股票"),
+                    base_date=item.get("base_date", ""),
+                    publish_date=item.get("publish_date", ""),
+                    source="csindex",
+                )
+            )
+    return records
+
+
+def _finalize_index_catalog(records: List[Dict]) -> Dict[str, List[Dict]]:
+    """按分类整理为缓存结构"""
+    catalog = {
+        "broad": [],
+        "industry": [],
+        "sector": [],
+        "strategy": [],
+        "style": [],
+        "other": [],
+    }
+
+    merged: Dict[str, Dict] = {}
+    for record in records:
+        _append_index_record(merged, record)
+
+    for record in merged.values():
+        category = record.get("category", "other") or "other"
+        if category not in catalog:
+            category = "other"
+        catalog[category].append(record)
+
+    for key in catalog:
+        catalog[key].sort(key=lambda x: (str(x.get("code", "")), str(x.get("name", ""))))
+
+    return catalog
 
 
 @lru_cache(maxsize=1)
@@ -135,17 +386,23 @@ def get_index_list() -> Dict[str, List[Dict]]:
     if cached_data:
         return cached_data
 
-    # 从网络获取
-    from . import index
-
     try:
-        logger.info("正在从中证指数官网获取指数列表...")
-        data = index.fetch_indices_from_csindex()
+        logger.info("正在从多源接口获取指数列表...")
+        records = []
+        records.extend(_fetch_csindex_source())
+        records.extend(_fetch_index_spot_sources())
+
+        data = _finalize_index_catalog(records)
 
         # 添加元数据
         from datetime import datetime
         data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
-        data["total"] = sum(len(indices) for indices in data.values() if isinstance(indices, list))
+        data["cache_version"] = INDEX_DB_SCHEMA_VERSION
+        data["total"] = sum(
+            len(indices)
+            for key, indices in data.items()
+            if key not in {"updated_at", "total"} and isinstance(indices, list)
+        )
 
         # 保存到磁盘
         _save_index_db_to_disk(data)

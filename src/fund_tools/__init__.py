@@ -24,6 +24,11 @@ from .core import (
     get_index_candidate_funds,
 )
 from . import index
+from .industry_valuation import (
+    get_industry_valuation_matrix,
+    get_valuation_heatmap,
+    format_heatmap_table,
+)
 
 # 从 index 模块导入所有指数相关函数
 from .index import (
@@ -37,6 +42,8 @@ from .index import (
     get_index_details,
     get_index_details_batch,
     get_index_risk,
+    get_csrc_industry_pe_snapshot,
+    get_csrc_industry_pe_snapshot,
     # 便捷函数
     get_broad_indices,
     get_industry_indices,
@@ -114,6 +121,10 @@ __all__ = [
     "get_index_details",
     "get_index_details_batch",
     "get_index_risk",
+    "get_csrc_industry_pe_snapshot",
+    "get_industry_valuation_matrix",
+    "get_valuation_heatmap",
+    "format_heatmap_table",
 ]
 
 __version__ = "2.0.0"

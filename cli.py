@@ -40,6 +40,8 @@ from fund_tools import (
     get_index_candidate_funds,
     get_index_details_batch,
     get_index_risk,
+    get_valuation_heatmap,
+    format_heatmap_table,
     INDEX_DB_FILE,
 )
 
@@ -555,6 +557,14 @@ def print_index_candidate_funds(result: dict, show_all: bool = False):
         print(f"  ... 还有 {count - display_count} 只基金")
 
 
+def print_index_heatmap(result: dict, limit: int = 30):
+    """打印指数估值热力图"""
+    if not result or result.get("total", 0) == 0:
+        print("  ℹ️  未获取到热力图数据")
+        return
+    print(format_heatmap_table(result, limit=limit))
+
+
 def print_portfolio_analysis(result: dict):
     """打印投资组合完整分析"""
     if result.get('status') == 'error':
@@ -858,6 +868,15 @@ def main():
     index_listfund_parser = index_subparsers.add_parser('listfund', help='查看指数候选基金池')
     index_listfund_parser.add_argument('code', type=str, help='6位指数代码')
     index_listfund_parser.add_argument('--all', '-a', action='store_true', help='显示所有候选基金')
+
+    # index heatmap
+    index_heatmap_parser = index_subparsers.add_parser('heatmap', help='查看指数估值热力图')
+    index_heatmap_parser.add_argument('--category', dest='heatmap_category', type=str, default='全部',
+                                      help='分类筛选（默认: 全部）')
+    index_heatmap_parser.add_argument('--sort-by', type=str, default='pe',
+                                      choices=['pe', 'pb', 'dividend', 'valuation', 'category'],
+                                      help='排序字段（默认: pe）')
+    index_heatmap_parser.add_argument('--limit', type=int, default=30, help='显示条数（默认: 30）')
 
     # index update
     index_subparsers.add_parser('update', help='更新指数数据库')
@@ -1170,6 +1189,14 @@ def main():
 
             result = get_index_candidate_funds(args.code)
             print_index_candidate_funds(result, show_all=args.all)
+
+        elif args.command == 'heatmap':
+            print_banner()
+            print(f"📈 查询指数估值热力图: 分类={args.heatmap_category} 排序={args.sort_by}")
+            print()
+
+            result = get_valuation_heatmap(category=args.heatmap_category, sort_by=args.sort_by)
+            print_index_heatmap(result, limit=args.limit)
 
         else:
             index_subparsers.choices[args.command].print_help()
