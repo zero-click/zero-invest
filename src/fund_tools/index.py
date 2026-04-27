@@ -202,6 +202,25 @@ def _calc_percentile(series: pd.Series, value: float) -> float:
     return round(float((series < value).sum() / len(series) * 100), 1)
 
 
+def _calc_valuation_reference(series: pd.Series, value: float) -> Dict[str, Optional[float]]:
+    """计算估值指标在历史区间内的参考值"""
+    clean_series = pd.to_numeric(series, errors="coerce").dropna()
+    if clean_series.empty:
+        return {
+            "当前": round(value, 2),
+            "中位数": None,
+            "最低": None,
+            "最高": None,
+        }
+
+    return {
+        "当前": round(value, 2),
+        "中位数": round(float(clean_series.median()), 2),
+        "最低": round(float(clean_series.min()), 2),
+        "最高": round(float(clean_series.max()), 2),
+    }
+
+
 def _calc_returns(df: pd.DataFrame, current_price: float) -> Dict[str, Optional[float]]:
     """
     计算各个时间段的收益率
@@ -283,6 +302,8 @@ def _get_lg_valuation(index_name: str) -> Dict:
 
         pe_10y = _calc_percentile(df_pe_hist["滚动市盈率"], latest_pe)
         pb_10y = _calc_percentile(df_pb_hist["市净率"], latest_pb)
+        pe_reference_10y = _calc_valuation_reference(df_pe_hist["滚动市盈率"], latest_pe)
+        pb_reference_10y = _calc_valuation_reference(df_pb_hist["市净率"], latest_pb)
 
         # Also 5y and 3y
         cutoff_5y = datetime.now() - timedelta(days=5 * 365)
@@ -302,7 +323,16 @@ def _get_lg_valuation(index_name: str) -> Dict:
             "PB分位_10年": pb_10y,
             "PB分位_5年": pb_5y,
             "PB分位_3年": pb_3y,
+            "PE参考_10年": pe_reference_10y,
+            "PB参考_10年": pb_reference_10y,
             "估值等级": _get_valuation_level(pe_10y),
+            "估值规则": "按 PE-TTM 10年历史分位划分：<10% 极度低估，10%-20% 低估，20%-40% 偏低，40%-60% 合理，60%-80% 偏高，80%-90% 高估，>=90% 极度高估。",
+            "估值口径": {
+                "PE_TTM": "乐咕乐股 stock_index_pe_lg 的滚动市盈率",
+                "PB": "乐咕乐股 stock_index_pb_lg 的市净率",
+                "历史分位": "当前值在近10年、近5年、近3年历史样本中的分位，数值越高表示估值越贵",
+                "历史参考": "近10年样本的当前值、中位数、最低值、最高值",
+            },
             "数据点数_10年": len(df_pe_hist),
         }
 
@@ -413,12 +443,21 @@ def get_index_details(code: str) -> Dict:
                 result["PE_TTM"] = round(float(pe_ttm), 2)
             result["估值数据源"] = "中证指数"
             result["估值等级"] = "N/A"
+            result["估值口径"] = {
+                "PE_TTM": "中证指数历史行情接口返回的滚动市盈率",
+                "历史分位": "当前数据源未提供足够历史估值样本，暂不计算",
+            }
 
         # 6. 股息率数据
         logger.info(f"正在获取指数 {code} 的股息率...")
         dividend_yield = _get_dividend_yield(code)
         if dividend_yield:
             result.update(dividend_yield)
+            result.setdefault("估值口径", {})
+            result["估值口径"].update({
+                "股息率1": "中证指数 stock_zh_index_value_csindex 的 D/P1（总股本口径）",
+                "股息率2": "中证指数 stock_zh_index_value_csindex 的 D/P2（计算用股本口径）",
+            })
 
         # 7. 数据完整性标记
         result["数据点数"] = len(df_hist)
@@ -526,4 +565,3 @@ def get_index_info_by_code(code: str) -> Dict:
     """
     all_indices = get_all_stock_indices()
     return get_index_info(all_indices, code)
-

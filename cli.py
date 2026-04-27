@@ -351,11 +351,43 @@ def print_index_details(details: dict):
             if value is not None and value >= 0:
                 print(f"  {label}:  {value}%")
 
+    # 历史参考
+    reference_items = [
+        ("PE参考_10年", "PE-TTM"),
+        ("PB参考_10年", "PB"),
+    ]
+    if any(details.get(key) for key, _ in reference_items):
+        print()
+        print("  📏 10年历史参考")
+        print("  " + "-" * 60)
+        for key, label in reference_items:
+            reference = details.get(key)
+            if not reference:
+                continue
+            current = reference.get("当前")
+            median = reference.get("中位数")
+            low = reference.get("最低")
+            high = reference.get("最高")
+            print(f"  {label}:  当前 {current} | 中位数 {median} | 最低 {low} | 最高 {high}")
+
     # 估值等级
     valuation_level = details.get('估值等级')
     if valuation_level and valuation_level != "N/A":
         print()
         print(f"  🌡️  估值温度:  {valuation_level}")
+
+    # 口径与规则
+    valuation_method = details.get('估值口径')
+    valuation_rule = details.get('估值规则')
+    if valuation_method or valuation_rule:
+        print()
+        print("  🧭 口径与规则")
+        print("  " + "-" * 60)
+        if valuation_method:
+            for key, value in valuation_method.items():
+                print(f"  {key}:  {value}")
+        if valuation_rule:
+            print(f"  估值判断:  {valuation_rule}")
 
     # 数据来源
     print()
