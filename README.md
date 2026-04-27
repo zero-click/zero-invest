@@ -1,14 +1,16 @@
-# 中国基金信息查询 MCP 服务
+# 中国基金和指数信息查询 MCP 服务
 
-基于 **akshare** 和 **MCP Python SDK** 的中国公募基金数据查询服务，可作为 **MCP 工具**接入 Claude Desktop，也可作为**独立 CLI** 使用。
+基于 **akshare** 和 **MCP Python SDK** 的中国公募基金和A股指数数据查询服务，可作为 **MCP 工具**接入 Claude Desktop，也可作为**独立 CLI** 使用。
 
-## 🎯 核心能力：基金深度分析
+## 🎯 核心能力
+
+### 1. 基金深度分析
 
 本项目的第一个核心能力是**获取单只基金的完整信息**，通过一个命令即可获得基金的全方位分析：
 
 ```bash
 # CLI 方式
-python cli.py query 000001 --detail
+python cli.py bond query 000001 --detail
 
 # MCP 方式（在 Claude Desktop 中）
 get_fund_details(code="000001", detail=True)
@@ -30,19 +32,44 @@ get_fund_details(code="000001", detail=True)
 | 💧 **流动性信息** | 申赎状态、交易时间、最低金额、到账时间 |
 | ⭐ **基金评级** | 上海证券、招商证券、济安金信、晨星等机构评级 |
 
+### 2. 指数详情查询 ⭐ 新功能
+
+第二个核心能力是**获取A股指数的完整信息**，包括当前值、业绩表现、估值数据和历史分位：
+
+```bash
+# CLI 方式
+python cli.py index details 000300
+
+# MCP 方式（在 Claude Desktop 中）
+get_index_details(code="000300")
+```
+
+**一次性获取以下所有信息：**
+
+| 类别 | 数据项 |
+|------|--------|
+| 📊 **基本信息** | 指数代码、名称、分类（宽基/行业/主题/策略/风格）、发布日期 |
+| 💹 **当前值** | 收盘点位、日期、涨跌幅 |
+| 📈 **业绩表现** | 近1周/1月/3月/6月/1年/3年/今年收益率 |
+| 💰 **估值数据** | PE-TTM、PB |
+| 📊 **历史分位** | PE/PB 的3年/5年/10年历史百分位 |
+| 🌡️ **估值等级** | 极度低估 ~ 极度高估（7级温度计） |
+| 📍 **数据源** | 乐咕乐股 or 中证指数 |
+
 **适用场景：**
-- 投资者进行基金研究和决策
-- 理财顾问快速获取基金资料
-- 数据分析和量化研究
-- 基金对比和筛选
+- 投资者进行指数配置决策
+- 理财顾问快速获取指数资料
+- 量化研究和因子分析
+- 指数对比和筛选
 
 ---
 
 ## 其他功能
 
-除了核心的基金深度分析，还提供以下辅助功能：
+除了核心的基金和指数深度分析，还提供以下辅助功能：
 
 - **基金搜索** — 按代码/名称/拼音搜索（26000+ 基金）
+- **指数搜索** — 按代码/名称搜索（1500+ A股指数）
 - **业绩排行** — 各类型基金业绩排行榜
 - **机构评级** — 多家评级机构评级汇总
 - **专项查询** — 单独查看业绩、风险、重仓股、费用等
@@ -121,9 +148,13 @@ npx -y @modelcontextprotocol/inspector
 
 | 工具 | 说明 |
 |------|------|
-| `get_fund_details` | **完整基金分析**（包含所有专业分析） |
+| **基金分析** ||| `get_fund_details` | **完整基金分析**（包含所有专业分析） |
 | `search_funds` | 按代码、名称、拼音搜索基金 |
 | `get_fund_portfolio_analysis` | **投资组合完整分析**（持仓+资产配置合并） |
+| **指数分析** ||| `get_index_details` | **指数完整详情**（当前值、业绩、PE/PB、历史分位） ⭐ |
+| `search_indices` | 按代码、名称搜索指数（1500+ A股指数） |
+| `get_index_info` | 指数基本信息 |
+| `get_index_details_batch` | 批量查询指数详情 |
 
 ### 专项分析工具
 
@@ -146,18 +177,163 @@ npx -y @modelcontextprotocol/inspector
 | `get_fund_rating` | 上海证券、招商证券、济安金信等评级 |
 | `refresh_fund_cache` | 强制刷新本地基金数据库 |
 
+### 指数工具
+
+| 工具 | 说明 |
+|------|------|
+| `search_indices` | 搜索指数（1500+ A股指数） |
+| `get_index_info` | 指数基本信息 |
+| `get_index_details` | **指数完整详情**（当前值、业绩、PE/PB、分位） |
+| `get_index_details_batch` | 批量查询指数详情 |
+
 ## 💻 命令行使用
 
-### 核心命令：完整基金分析
+### 基金查询命令
 
 ```bash
-# 标准模式（基本信息）
-python cli.py query 000001
+# 搜索基金
+python cli.py bond search "华夏"
 
-# 完整模式（包含所有专业分析）
-python cli.py query 000001 --detail
-python cli.py query 000001 -d
+# 查询基金详情
+python cli.py bond query 000001
+python cli.py bond query 000001 --detail
+
+# 排行榜
+python cli.py bond ranking --type 股票型 --top 10
+
+# 基金经理
+python cli.py bond manager 000001
+
+# 投资组合分析
+python cli.py bond portfolio 000001
+
+# 更新数据库
+python cli.py bond update
 ```
+
+### 指数查询命令 ⭐
+
+```bash
+# 搜索指数
+python cli.py index search "红利"
+python cli.py index search "300"
+
+# 查看指数基本信息
+python cli.py index info 000300
+
+# 查看指数完整详情
+python cli.py index details 000300
+
+# 批量查询指数详情
+python cli.py index batch 000300 000905 000852
+```
+
+---
+
+## 📖 完整命令参考
+
+### 基金查询（bond 命名空间）
+
+```bash
+# 搜索基金
+python cli.py bond search <keyword>
+python cli.py bond search "华夏" --all
+
+# 查询基金
+python cli.py bond query <code>
+python cli.py bond query 000001 --detail
+
+# 排行榜
+python cli.py bond ranking --type 股票型 --top 10
+
+# 专项查询
+python cli.py bond performance <code>
+python cli.py bond risk <code>
+python cli.py bond top-holdings <code>
+python cli.py bond manager <code>
+python cli.py bond fee <code>
+python cli.py bond liquidity <code>
+
+# 投资组合分析
+python cli.py bond holdings <code>
+python cli.py bond allocation <code>
+python cli.py bond portfolio <code>
+
+# 更新数据库
+python cli.py bond update
+```
+
+### 指数查询（index 命名空间）
+
+```bash
+# 搜索指数
+python cli.py index search <keyword>
+python cli.py index search "红利" --all
+
+# 查看指数信息
+python cli.py index info <code>
+python cli.py index info 000300
+
+# 查看指数详情
+python cli.py index details <code>
+python cli.py index details 000300
+
+# 批量查询
+python cli.py index batch <code1> <code2> ...
+python cli.py index batch 000300 000905 000852
+```
+
+---
+
+## 🎯 使用示例
+
+### 示例 1：基金深度分析
+
+```bash
+# 获取基金的完整分析
+python cli.py bond query 000001 --detail
+```
+
+输出包含：
+- 📋 基本信息（名称、类型、规模、经理）
+- 📈 业绩表现（1周~成立以来收益率）
+- ⚠️ 风险指标（标准差、夏普比率）
+- 💼 十大重仓股
+- 👤 基金经理详情
+- 💰 费用明细
+- 💧 流动性信息
+
+### 示例 2：指数估值分析
+
+```bash
+# 获取指数的完整分析
+python cli.py index details 000300
+```
+
+输出包含：
+- 📊 基本信息（代码、名称、分类）
+- 💹 当前值（收盘点位、涨跌幅）
+- 📈 业绩表现（1周~3年收益率）
+- 💰 估值数据（PE-TTM、PB）
+- 📊 历史分位（3年/5年/10年百分位）
+- 🌡️ 估值温度（低估/合理/高估）
+
+### 示例 3：批量指数对比
+
+```bash
+# 批量查询多个指数
+python cli.py index batch 000300 000905 000852
+```
+
+可以快速对比不同指数的：
+- 收盘点位
+- 收益率表现
+- 估值分位
+- 估值温度
+
+---
+
+## 🎓 数据源说明
 
 ### 投资组合分析（推荐）
 

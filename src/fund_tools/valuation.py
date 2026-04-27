@@ -2,20 +2,6 @@
 """
 指数估值模块 - 基于 akshare 的指数PE/PB/历史分位查询
 
-⚠️  废弃警告 (Deprecated): 此模块已迁移至 src/fund_tools/valuation.py
-
-请使用新的导入方式：
-  from src.fund_tools import (
-      get_index_pe,
-      get_csindex_valuation,
-      get_index_valuation_batch,
-      get_portfolio_index_valuation,
-  )
-
-此文件仅为向后兼容保留，将在未来版本中移除。
-
----
-
 数据源:
   - 乐咕乐股 (stock_index_pe_lg / stock_index_pb_lg): 宽基指数PE/PB历史数据
   - 中证指数 (stock_zh_index_value_csindex): 行业/主题指数估值
@@ -31,13 +17,6 @@ import os
 import warnings
 from datetime import datetime, timedelta
 from typing import Optional
-
-# 发出废弃警告
-warnings.warn(
-    "index_valuation 模块已废弃，请使用 'from src.fund_tools import get_index_pe' 等新接口",
-    DeprecationWarning,
-    stacklevel=2
-)
 
 import akshare as ak
 import numpy as np
@@ -119,54 +98,54 @@ def _calc_percentile(series: pd.Series, value: float) -> float:
 def get_index_pe(symbol: str, years: int = 10) -> dict:
     """
     获取乐咕乐股指数PE数据及历史分位
-    
+
     Args:
         symbol: 指数名称，如 "沪深300", "中证500"
         years: 计算分位的历史年数（默认10年）
-    
+
     Returns:
         dict with pe, pb, percentiles, valuation_level
     """
     if symbol not in LG_INDEX_MAP:
         return {"status": "error", "message": f"不支持的指数: {symbol}。支持: {list(LG_INDEX_MAP.keys())}"}
-    
+
     symbol = LG_INDEX_MAP[symbol]
     cutoff_date = (datetime.now() - timedelta(days=years * 365)).strftime("%Y-%m-%d")
-    
+
     try:
         # Get PE data
         df_pe = ak.stock_index_pe_lg(symbol=symbol)
         df_pe["日期"] = pd.to_datetime(df_pe["日期"])
-        
+
         # Get PB data
         df_pb = ak.stock_index_pb_lg(symbol=symbol)
         df_pb["日期"] = pd.to_datetime(df_pb["日期"])
-        
+
         # Latest values
         latest_pe_row = df_pe.iloc[-1]
         latest_pb_row = df_pb.iloc[-1]
-        
+
         pe_ttm = float(latest_pe_row["滚动市盈率"])
         pb = float(latest_pb_row["市净率"])
         date_str = latest_pe_row["日期"].strftime("%Y-%m-%d")
         index_value = float(latest_pe_row["指数"])
-        
+
         # Calculate percentiles from cutoff
         df_pe_hist = df_pe[df_pe["日期"] >= cutoff_date]
         df_pb_hist = df_pb[df_pb["日期"] >= cutoff_date]
-        
+
         pe_10y = _calc_percentile(df_pe_hist["滚动市盈率"], pe_ttm)
         pb_10y = _calc_percentile(df_pb_hist["市净率"], pb)
-        
+
         # Also 5y and 3y
         cutoff_5y = (datetime.now() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
         cutoff_3y = (datetime.now() - timedelta(days=3 * 365)).strftime("%Y-%m-%d")
-        
+
         pe_5y = _calc_percentile(df_pe_hist[df_pe_hist["日期"] >= cutoff_5y]["滚动市盈率"], pe_ttm)
         pe_3y = _calc_percentile(df_pe_hist[df_pe_hist["日期"] >= cutoff_3y]["滚动市盈率"], pe_ttm)
         pb_5y = _calc_percentile(df_pb_hist[df_pb_hist["日期"] >= cutoff_5y]["市净率"], pb)
         pb_3y = _calc_percentile(df_pb_hist[df_pb_hist["日期"] >= cutoff_3y]["市净率"], pb)
-        
+
         return {
             "status": "success",
             "指数": symbol,
@@ -190,10 +169,10 @@ def get_index_pe(symbol: str, years: int = 10) -> dict:
 def get_csindex_valuation(symbol: str) -> dict:
     """
     获取中证指数估值数据（支持行业/主题指数）
-    
+
     Args:
         symbol: 指数代码，如 "000300", "H30225"
-    
+
     Returns:
         dict with PE, dividend yield from CSIndex
     """
@@ -201,10 +180,10 @@ def get_csindex_valuation(symbol: str) -> dict:
         df = ak.stock_zh_index_value_csindex(symbol=symbol)
         if df is None or df.empty:
             return {"status": "error", "message": f"未找到指数 {symbol} 的估值数据"}
-        
+
         latest = df.iloc[-1]
         name = str(latest.get("指数中文简称", symbol))
-        
+
         return {
             "status": "success",
             "指数代码": symbol,
@@ -225,37 +204,37 @@ def get_index_valuation_batch(
 ) -> dict:
     """
     批量查询指数估值
-    
+
     Args:
         lg_indices: 乐咕乐股指数名称列表，如 ["沪深300", "中证500"]
         csindex_codes: 中证指数代码列表，如 ["399967", "000819"]
-    
+
     Returns:
         dict with all valuation results
     """
     results = {"乐咕宽基指数": {}, "中证行业指数": {}}
-    
+
     # Query LG indices
     if lg_indices:
         for name in lg_indices:
             r = get_index_pe(name)
             results["乐咕宽基指数"][name] = r
-    
+
     # Query CSIndex indices
     if csindex_codes:
         for code in csindex_codes:
             display_name = CSINDEX_MAP.get(code, (code, code))[0]
             r = get_csindex_valuation(code)
             results["中证行业指数"][display_name] = r
-    
+
     return results
 
 
 def get_portfolio_index_valuation() -> dict:
     """
     一键获取投资组合相关的所有指数估值
-    包含: 宽基指数(6个) + 行业指数(11个)
-    
+    包含: 宽基指数(6个) + 行业指数(8个)
+
     Returns:
         dict with structured valuation data for all relevant indices
     """
@@ -270,26 +249,26 @@ def get_portfolio_index_valuation() -> dict:
         "931865",   # 中证半导
         "H30174",   # 中证新能源
     ]
-    
+
     return get_index_valuation_batch(lg_indices=lg_indices, csindex_codes=csindex_codes)
 
 
 def compare_fund_with_index(fund_code: str, index_name: str = "沪深300") -> dict:
     """
     对比基金与指数的估值情况
-    
+
     Args:
         fund_code: 基金代码 (6位)
         index_name: 对比的指数名称
-    
+
     Returns:
         dict with fund details + index valuation comparison
     """
-    from src.fund_tools import query_fund_details
-    
-    fund_result = query_fund_details(fund_code)
+    from . import query_fund_details
+
+    fund_result = query_fund_details(fund_code, year=datetime.now().year)
     index_result = get_index_pe(index_name)
-    
+
     return {
         "基金": fund_result,
         "对比指数": index_result,

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-基金信息查询命令行工具
+基金和指数信息查询命令行工具 v2.2
+使用子命令命名空间：bond (基金) 和 index (指数)
 """
 
 import argparse
@@ -14,6 +15,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from fund_tools import (
+    # 基金相关
     search_funds,
     query_fund_details,
     get_fund_rankings,
@@ -29,6 +31,19 @@ from fund_tools import (
     get_fund_liquidity_info,
     get_fund_list,
     FUND_DB_FILE,
+    # 估值相关
+    get_index_pe,
+    get_csindex_valuation,
+    get_index_valuation_batch,
+    get_portfolio_index_valuation,
+    # 指数相关
+    get_index_list,
+    update_index_cache,
+    search_indices_all,
+    get_index_info_by_code,
+    get_index_details,
+    get_index_details_batch,
+    INDEX_DB_FILE,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,15 +67,15 @@ def print_banner():
     print("""
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║                                                                      ║
-║                    📊 中国基金信息查询工具 v2.0                          ║
-║                    基于 akshare + MCP Python SDK                        ║
+║                📊 中国基金和指数信息查询工具 v2.2                         ║
+║                基于 akshare + MCP Python SDK                           ║
 ║                                                                      ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 """)
 
 
 # ============================================================================
-# 打印函数
+# 基金相关打印函数
 # ============================================================================
 
 def print_fund_search_results(results: list, show_all: bool = False):
@@ -147,61 +162,205 @@ def print_fund_details(details: dict):
         print("  💼 十大重仓股")
         print("  " + "-" * 60)
         for i, holding in enumerate(holdings[:10], 1):
-            print(f"    {i}. {holding}")
-    else:
+            # holding 可能是字典或字符串
+            if isinstance(holding, dict):
+                name = holding.get('股票名称', 'N/A')
+                code = holding.get('股票代码', '')
+                pct = holding.get('占净值比例', 0)
+                if isinstance(pct, (int, float)):
+                    print(f"    {i:2d}. {name:<12s} {code:<10s} {pct:.2f}%")
+                else:
+                    print(f"    {i:2d}. {name:<12s} {code:<10s} {pct}")
+            elif isinstance(holding, str):
+                # 字符串格式: "股票名称 (占比)"
+                print(f"    {i:2d}. {holding}")
+
+    # 基金经理详情
+    manager_details = details.get('manager_details')
+    if manager_details:
         print()
-        print("  💼 十大重仓股:  暂无数据")
+        print("  👤 基金经理详情")
+        print("  " + "-" * 60)
+        print(f"  姓名: {manager_details.get('姓名', 'N/A')}")
+        print(f"  从业年限: {manager_details.get('从业年限', 'N/A')}")
+        print(f"  管理规模: {manager_details.get('管理规模', 'N/A')}")
+        print(f"  最佳回报: {manager_details.get('最佳回报', 'N/A')}")
+        print(f"  现任基金: {manager_details.get('现任基金', 'N/A')}")
+
+    # 费用详情
+    fee_details = details.get('fee_details')
+    if fee_details:
+        print()
+        print("  💸 费用详情")
+        print("  " + "-" * 60)
+        subitem = fee_details.get('申购费', {})
+        if subitem:
+            print(f"  申购费率: ")
+            for amount, rate in subitem.items():
+                print(f"    {amount}: {rate}")
+        subitem = fee_details.get('赎回费', {})
+        if subitem:
+            print(f"  赎回费率: ")
+            for period, rate in subitem.items():
+                print(f"    持有{period}: {rate}")
+        print(f"  管理费率: {fee_details.get('管理费', 'N/A')}")
+        print(f"  托管费率: {fee_details.get('托管费', 'N/A')}")
+
+    # 流动性信息
+    liquidity = details.get('liquidity')
+    if liquidity:
+        print()
+        print("  💧 流动性信息")
+        print("  " + "-" * 60)
+        for key, value in liquidity.items():
+            print(f"  {key}: {value}")
 
 
-def print_rankings(results: dict, top_n: int = 10):
-    """美式打印排行榜"""
-    if results.get('status') == 'error':
-        print(f"  ❌ {results.get('message')}")
+# ============================================================================
+# 指数相关打印函数
+# ============================================================================
+
+def print_index_search_results(results: list, show_all: bool = False):
+    """打印指数搜索结果"""
+    if not results:
+        print("  ℹ️  未找到匹配的指数")
         return
 
-    data = results.get('data', [])
-    count = len(data)
-    display_count = min(top_n, count)
+    count = len(results)
+    display_count = count if show_all else min(15, count)
 
-    print(f"  共 {count} 只基金 (TOP {display_count}):")
+    print(f"  查找到 {count} 个指数 (显示前 {display_count} 个):")
     print()
-    print(f"  {'排名':<6}{'基金代码':<12}{'基金名称':<30}{'近1年收益率':<15}")
-    print("  " + "-" * 65)
+    print(f"  {'序号':<6}{'代码':<10}{'名称':<20}{'分类':<12}{'指数类别':<10}")
+    print("  " + "-" * 70)
 
-    for i, fund in enumerate(data[:display_count], 1):
-        code = fund.get('基金代码', '')
-        name = fund.get('基金简称', '')
-        return_1y = fund.get('近1年', 'N/A')
+    for i, idx in enumerate(results[:display_count], 1):
+        code = idx.get('code', '')
+        name = idx.get('name', '')
+        category = idx.get('category', '')
+        index_class = idx.get('index_class', '')
 
         # 截断过长的名称
-        if len(name) > 28:
-            name = name[:25] + '...'
+        if len(name) > 18:
+            name = name[:15] + '...'
 
-        print(f"  {i:<6}{code:<12}{name:<30}{return_1y:<15}")
+        print(f"  {i:<6}{code:<10}{name:<20}{category:<12}{index_class:<10}")
+
+    if count > display_count:
+        print(f"  ... 还有 {count - display_count} 个指数")
 
 
-def print_rating(ratings):
-    """美式打印基金评级"""
-    if not ratings:
-        print("  ℹ️  该基金暂无评级数据")
+def print_index_info(info: dict):
+    """打印指数基本信息"""
+    if not info:
+        print("  ❌ 未找到该指数")
         return
 
     print()
-    print("  ⭐ 评级详情")
+    print("  📊 基本信息")
     print("  " + "-" * 60)
-    print(f"  基金代码:  {ratings.get('代码', '')}")
-    print(f"  基金名称:  {ratings.get('简称', '')}")
-    print(f"  基金公司:  {ratings.get('基金公司', '')}")
-    print()
+    print(f"  指数代码:  {info.get('code', '')}")
+    print(f"  指数名称:  {info.get('name', '')}")
+    print(f"  指数分类:  {info.get('category', '')}")
+    print(f"  指数类别:  {info.get('index_class', '')}")
+    print(f"  资产类别:  {info.get('asset_class', '')}")
+    print(f"  基日:  {info.get('base_date', 'N/A')}")
+    print(f"  发布日期:  {info.get('publish_date', 'N/A')}")
 
-    if '上海证券' in ratings and ratings['上海证券'] and not pd.isna(ratings['上海证券']):
-        print(f"    上海证券: {ratings['上海证券']} ⭐")
-    if '招商证券' in ratings and ratings['招商证券'] and not pd.isna(ratings['招商证券']):
-        print(f"    招商证券: {ratings['招商证券']} ⭐")
-    if '济安金信' in ratings and ratings['济安金信'] and not pd.isna(ratings['济安金信']):
-        print(f"    济安金信: {ratings['济安金信']} ⭐")
-    if '晨星评级' in ratings and ratings['晨星评级'] and not pd.isna(ratings['晨星评级']):
-        print(f"    晨星评级: {ratings['晨星评级']} ⭐")
+
+def print_index_details(details: dict):
+    """打印指数完整详情"""
+    if details.get('status') == 'error':
+        print(f"  ❌ {details.get('message')}")
+        return
+
+    print()
+    print("  📊 基本信息")
+    print("  " + "-" * 60)
+    print(f"  指数代码:  {details.get('代码', '')}")
+    print(f"  指数名称:  {details.get('名称', '')}")
+    print(f"  指数分类:  {details.get('分类', '')}")
+    print(f"  指数类别:  {details.get('指数类别', '')}")
+    print(f"  发布日期:  {details.get('发布日期', 'N/A')}")
+
+    print()
+    print("  💹 当前值")
+    print("  " + "-" * 60)
+    print(f"  收盘点位:  {details.get('收盘点位', 'N/A')}")
+    print(f"  日期:  {details.get('日期', 'N/A')}")
+    print(f"  涨跌幅:  {details.get('涨跌幅', 'N/A')}%")
+
+    # 业绩表现
+    print()
+    print("  📈 业绩表现")
+    print("  " + "-" * 60)
+    performance_items = [
+        ("1周_收益率", "1周"),
+        ("1月_收益率", "1月"),
+        ("3月_收益率", "3月"),
+        ("6月_收益率", "6月"),
+        ("1年_收益率", "1年"),
+        ("3年_收益率", "3年"),
+        ("今年收益率", "今年"),
+    ]
+    for key, label in performance_items:
+        value = details.get(key)
+        if value is not None:
+            print(f"  {label}收益率:  {value}%")
+        else:
+            print(f"  {label}收益率:  N/A")
+
+    # 估值数据
+    print()
+    print("  💰 估值数据")
+    print("  " + "-" * 60)
+    pe = details.get('PE_TTM')
+    pb = details.get('PB')
+    if pe is not None:
+        print(f"  PE-TTM:  {pe}")
+    if pb is not None:
+        print(f"  PB:  {pb}")
+
+    # 股息率
+    div_yield_1 = details.get('股息率1')
+    div_yield_2 = details.get('股息率2')
+    if div_yield_1 is not None or div_yield_2 is not None:
+        print()
+        print("  💵 股息率")
+        print("  " + "-" * 60)
+        if div_yield_1 is not None:
+            print(f"  股息率1 (价格):  {div_yield_1}%")
+        if div_yield_2 is not None:
+            print(f"  股息率2 (净值):  {div_yield_2}%")
+
+    # 历史分位
+    if 'PE分位_10年' in details:
+        print()
+        print("  📊 历史分位")
+        print("  " + "-" * 60)
+        percentile_items = [
+            ("PE分位_3年", "PE(3年)"),
+            ("PE分位_5年", "PE(5年)"),
+            ("PE分位_10年", "PE(10年)"),
+            ("PB分位_3年", "PB(3年)"),
+            ("PB分位_5年", "PB(5年)"),
+            ("PB分位_10年", "PB(10年)"),
+        ]
+        for key, label in percentile_items:
+            value = details.get(key)
+            if value is not None and value >= 0:
+                print(f"  {label}:  {value}%")
+
+    # 估值等级
+    valuation_level = details.get('估值等级')
+    if valuation_level and valuation_level != "N/A":
+        print()
+        print(f"  🌡️  估值温度:  {valuation_level}")
+
+    # 数据来源
+    print()
+    print(f"  📍 数据源:  {details.get('估值数据源', 'N/A')}")
+    print(f"  📈 数据点数:  {details.get('数据点数', 'N/A')}")
 
 
 def print_manager_details(result: dict):
@@ -229,8 +388,8 @@ def print_manager_details(result: dict):
         print()
 
 
-def print_holdings_analysis(result: dict):
-    """打印持仓动态分析"""
+def print_portfolio_analysis(result: dict):
+    """打印投资组合完整分析"""
     if result.get('status') == 'error':
         print(f"  ❌ {result.get('message')}")
         return
@@ -251,8 +410,12 @@ def print_holdings_analysis(result: dict):
         print("  " + "-" * 60)
         for i, h in enumerate(holdings, 1):
             name = h.get('股票名称', 'N/A')
+            code = h.get('股票代码', '')
             pct = h.get('占净值比例', 0)
-            print(f"    {i:2d}. {name:<12s} {pct:.2f}%" if isinstance(pct, (int, float)) else f"    {i:2d}. {name}")
+            if isinstance(pct, (int, float)):
+                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct:.2f}%")
+            else:
+                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct}")
         print()
 
     # 持仓变化
@@ -266,19 +429,6 @@ def print_holdings_analysis(result: dict):
                 print(f"      - {s['股票名称']}: 买入 {s['买入金额']}")
         print()
 
-
-def print_asset_allocation(result: dict):
-    """打印资产配置结构"""
-    if result.get('status') == 'error':
-        print(f"  ❌ {result.get('message')}")
-        return
-
-    # 投资风格
-    style = result.get('investment_style', '')
-    if style:
-        print(f"  🎯 投资风格: {style}")
-        print()
-
     # 行业配置
     industries = result.get('industry_allocation', [])
     if industries:
@@ -288,21 +438,12 @@ def print_asset_allocation(result: dict):
             print(f"    {i}. {ind['行业类别']:<30s} {ind['占净值比例']}")
         print()
 
-    # 股票持仓
-    stocks = result.get('stock_holdings_sample', [])
-    if stocks:
-        print("  📈 股票持仓样本")
-        print("  " + "-" * 60)
-        for s in stocks[:5]:
-            print(f"    - {s['股票名称']}: {s['占净值比例']}")
-        print()
-
     # 债券持仓
     bonds = result.get('bond_holdings_sample', [])
     if bonds:
         print("  🏛️  债券持仓样本")
         print("  " + "-" * 60)
-        for b in bonds[:3]:
+        for b in bonds[:5]:
             print(f"    - {b['债券名称']}: {b['占净值比例']}")
         print()
 
@@ -380,114 +521,6 @@ def print_liquidity_info(result: dict):
     print()
 
 
-def print_performance(performance: dict):
-    """打印基金业绩"""
-    if not performance:
-        print("  ℹ️  暂无业绩数据")
-        return
-
-    print("  📈 基金业绩")
-    print("  " + "-" * 60)
-    for period, return_rate in performance.items():
-        print(f"    {period}: {return_rate}")
-    print()
-
-
-def print_risk_metrics(risk_metrics: dict):
-    """打印风险指标"""
-    if not risk_metrics:
-        print("  ℹ️  暂无风险指标数据")
-        return
-
-    print("  ⚠️  风险指标")
-    print("  " + "-" * 60)
-    for key, value in risk_metrics.items():
-        print(f"    {key}: {value}")
-    print()
-
-
-def print_top_holdings(holdings: list):
-    """打印十大重仓股"""
-    if not holdings:
-        print("  ℹ️  暂无持仓数据")
-        return
-
-    print("  💼 十大重仓股")
-    print("  " + "-" * 60)
-    for i, holding in enumerate(holdings, 1):
-        if isinstance(holding, dict):
-            name = holding.get('股票名称', 'N/A')
-            code = holding.get('股票代码', '')
-            pct = holding.get('占净值比例', 0)
-            if isinstance(pct, (int, float)):
-                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct:.2f}%")
-            else:
-                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct}")
-        else:
-            print(f"    {i}. {holding}")
-    print()
-
-
-def print_portfolio_analysis(result: dict):
-    """打印投资组合完整分析"""
-    if result.get('status') == 'error':
-        print(f"  ❌ {result.get('message')}")
-        return
-
-    # 持仓集中度
-    conc = result.get('concentration', {})
-    if conc:
-        print("  📊 持仓集中度")
-        print("  " + "-" * 60)
-        print(f"    前10大持仓占比: {conc.get('前10大持仓占比', 'N/A')}")
-        print(f"    集中度评估: {conc.get('持仓集中度', 'N/A')}")
-        print()
-
-    # 最新持仓
-    holdings = result.get('latest_top_holdings', [])
-    if holdings:
-        print("  💼 最新前10大持仓")
-        print("  " + "-" * 60)
-        for i, h in enumerate(holdings, 1):
-            name = h.get('股票名称', 'N/A')
-            code = h.get('股票代码', '')
-            pct = h.get('占净值比例', 0)
-            if isinstance(pct, (int, float)):
-                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct:.2f}%")
-            else:
-                print(f"    {i:2d}. {name:<12s} {code:<10s} {pct}")
-        print()
-
-    # 持仓变化
-    changes = result.get('holdings_change_by_quarter', {})
-    if changes:
-        print("  📈 持仓变化趋势")
-        print("  " + "-" * 60)
-        for quarter, stocks in list(changes.items())[:2]:
-            print(f"    {quarter}:")
-            for s in stocks[:5]:
-                print(f"      - {s['股票名称']}: 买入 {s['买入金额']}")
-        print()
-
-    # 行业配置
-    industries = result.get('industry_allocation', [])
-    if industries:
-        print("  🏭 行业配置 (前5大)")
-        print("  " + "-" * 60)
-        for i, ind in enumerate(industries[:5], 1):
-            print(f"    {i}. {ind['行业类别']:<30s} {ind['占净值比例']}")
-        print()
-
-    # 债券持仓
-    bonds = result.get('bond_holdings_sample', [])
-    if bonds:
-        print("  🏛️  债券持仓样本")
-        print("  " + "-" * 60)
-        for b in bonds[:5]:
-            print(f"    - {b['债券名称']}: {b['占净值比例']}")
-        print()
-
-
 # ============================================================================
 # 主函数
 # ============================================================================
@@ -495,59 +528,47 @@ def print_portfolio_analysis(result: dict):
 def main():
     """命令行主函数"""
     parser = argparse.ArgumentParser(
-        description='中国基金信息查询命令行工具 v2.1',
+        description='中国基金和指数信息查询命令行工具 v2.2',
         formatter_class=argparse.RawTextHelpFormatter,
         epilog="""
 使用示例:
+  === 基金查询 (bond) ===
   1. 搜索基金:
-     python cli.py search "华夏"
+     python cli.py bond search "华夏"
 
-  2. 查询基金详情（基本信息）:
-     python cli.py query 000001
-
-  2.1 查询基金完整详情（包含所有分析）:
-     python cli.py query 000001 --detail
-     python cli.py query 000001 -d
+  2. 查询基金详情:
+     python cli.py bond query 000001
+     python cli.py bond query 000001 --detail
 
   3. 查看排行榜:
-     python cli.py ranking --type 股票型 --top 10
+     python cli.py bond ranking --type 股票型 --top 10
 
   4. 查询基金评级:
-     python cli.py rating 000001
+     python cli.py bond rating 000001
 
-  5. 查询基金经理详情:
-     python cli.py manager 000001
+  5. 查询基金经理:
+     python cli.py bond manager 000001
 
-  6. 持仓动态分析:
-     python cli.py holdings 000001 --periods 4
+  6. 持仓分析:
+     python cli.py bond holdings 000001
+     python cli.py bond portfolio 000001
 
-  7. 资产配置结构:
-     python cli.py allocation 000001
-     python cli.py allocation 000001 --year 2025  # 指定年份
+  7. 更新数据库:
+     python cli.py bond update
 
-  8. 费用明细:
-     python cli.py fee 000001
+  === 指数查询 (index) ===
+  1. 搜索指数:
+     python cli.py index search "红利"
+     python cli.py index search "300"
 
-  9. 流动性信息:
-     python cli.py liquidity 000001
+  2. 查看指数信息:
+     python cli.py index info 000300
 
-  10. 查看基金业绩:
-     python cli.py performance 000001
+  3. 查看指数详情:
+     python cli.py index details 000300
 
-  11. 查看风险指标:
-     python cli.py risk 000001
-
-  12. 查看十大重仓股:
-     python cli.py top-holdings 000001
-
-  13. 查看投资组合完整分析（合并持仓+资产配置）:
-     python cli.py portfolio 000001
-
-  14. 更新本地数据库:
-     python cli.py update
-
-  Debug 模式:
-     python cli.py --debug query 000001
+  4. 批量查询:
+     python cli.py index batch 000300 000905 000852
 
 项目主页: https://github.com/example/ttjj-fund
         """
@@ -557,24 +578,27 @@ def main():
     parser.add_argument('--debug', '-D', action='store_true',
                         help='启用调试模式，显示详细日志')
 
-    subparsers = parser.add_subparsers(dest='command', help='可用的命令')
+    subparsers = parser.add_subparsers(dest='category', help='查询类别: bond(基金) 或 index(指数)')
 
-    # === update 命令 ===
-    subparsers.add_parser('update', help='更新基金数据库')
+    # ============================================================
+    # bond 子命令（基金相关）
+    # ============================================================
+    bond_parser = subparsers.add_parser('bond', help='基金相关查询')
+    bond_subparsers = bond_parser.add_subparsers(dest='command', help='基金命令')
 
-    # === search 命令 ===
-    search_parser = subparsers.add_parser('search', help='搜索基金')
+    # bond search
+    search_parser = bond_subparsers.add_parser('search', help='搜索基金')
     search_parser.add_argument('keyword', type=str, help='搜索关键词（基金代码/名称/拼音）')
     search_parser.add_argument('--all', '-a', action='store_true', help='显示所有结果')
 
-    # === query 命令 ===
-    query_parser = subparsers.add_parser('query', help='查询基金详细信息')
+    # bond query
+    query_parser = bond_subparsers.add_parser('query', help='查询基金详细信息')
     query_parser.add_argument('code', type=str, help='6位基金代码')
     query_parser.add_argument('--detail', '-d', action='store_true',
                              help='显示完整详情（包括基金经理、持仓、配置、费用、流动性等）')
 
-    # === ranking 命令 ===
-    ranking_parser = subparsers.add_parser('ranking', help='查看基金排行榜')
+    # bond ranking
+    ranking_parser = bond_subparsers.add_parser('ranking', help='查看基金排行榜')
     ranking_parser.add_argument('--type', '-t', dest='fund_type',
                               default='全部',
                               choices=['全部', '股票型', '混合型', '债券型', '指数型', 'QDII', 'FOF'],
@@ -582,299 +606,368 @@ def main():
     ranking_parser.add_argument('--top', '-n', type=int, default=10,
                              help='显示前N名（默认: 10）')
 
-    # === rating 命令 ===
-    rating_parser = subparsers.add_parser('rating', help='查询基金评级')
+    # bond rating
+    rating_parser = bond_subparsers.add_parser('rating', help='查询基金评级')
     rating_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === manager 命令 ===
-    manager_parser = subparsers.add_parser('manager', help='查询基金经理深度信息')
+    # bond manager
+    manager_parser = bond_subparsers.add_parser('manager', help='查询基金经理深度信息')
     manager_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === holdings 命令 ===
-    holdings_parser = subparsers.add_parser('holdings', help='持仓动态分析')
+    # bond holdings
+    holdings_parser = bond_subparsers.add_parser('holdings', help='持仓动态分析')
     holdings_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === allocation 命令 ===
-    alloc_parser = subparsers.add_parser('allocation', help='资产配置结构')
+    # bond allocation
+    alloc_parser = bond_subparsers.add_parser('allocation', help='资产配置结构')
     alloc_parser.add_argument('code', type=str, help='6位基金代码')
     alloc_parser.add_argument('--year', '-y', type=str, default=None,
                              help='年份（默认: 当前年份）')
 
-    # === fee 命令 ===
-    fee_parser = subparsers.add_parser('fee', help='费用明细')
+    # bond fee
+    fee_parser = bond_subparsers.add_parser('fee', help='费用明细')
     fee_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === liquidity 命令 ===
-    liq_parser = subparsers.add_parser('liquidity', help='流动性信息')
+    # bond liquidity
+    liq_parser = bond_subparsers.add_parser('liquidity', help='流动性信息')
     liq_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === performance 命令 ===
-    perf_parser = subparsers.add_parser('performance', help='基金业绩')
+    # bond performance
+    perf_parser = bond_subparsers.add_parser('performance', help='基金业绩')
     perf_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === risk 命令 ===
-    risk_parser = subparsers.add_parser('risk', help='风险指标')
+    # bond risk
+    risk_parser = bond_subparsers.add_parser('risk', help='风险指标')
     risk_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === top-holdings 命令 ===
-    holdings_parser = subparsers.add_parser('top-holdings', help='十大重仓股')
-    holdings_parser.add_argument('code', type=str, help='6位基金代码')
+    # bond top-holdings
+    top_holdings_parser = bond_subparsers.add_parser('top-holdings', help='十大重仓股')
+    top_holdings_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === portfolio 命令 ===
-    portfolio_parser = subparsers.add_parser('portfolio', help='投资组合完整分析')
+    # bond portfolio
+    portfolio_parser = bond_subparsers.add_parser('portfolio', help='投资组合完整分析')
     portfolio_parser.add_argument('code', type=str, help='6位基金代码')
 
-    # === heatmap 命令 ===
-    heatmap_parser = subparsers.add_parser('heatmap', help='行业估值热力图')
-    heatmap_parser.add_argument('--category', '-c', type=str,
-                               choices=['全部', '宽基', '科技', '成长', '消费', '医药', '资源', '金融', '军工', '红利'],
-                               default='全部',
-                               help='行业分类筛选（默认: 全部）')
-    heatmap_parser.add_argument('--sort', '-s', type=str,
-                               choices=['pe', 'pb', 'dividend', 'valuation'],
-                               default='pe',
-                               help='排序方式：pe(市盈率), pb(市净率), dividend(股息率), valuation(估值)')
-    heatmap_parser.add_argument('--limit', '-l', type=int, default=20,
-                               help='显示数量限制（默认: 20）')
-    heatmap_parser.add_argument('--suggestions', '-g', action='store_true',
-                               help='显示投资建议')
-    heatmap_parser.add_argument('--json', '-j', action='store_true',
-                               help='输出JSON格式数据')
+    # bond update
+    bond_subparsers.add_parser('update', help='更新基金数据库')
+
+    # ============================================================
+    # index 子命令（指数相关）
+    # ============================================================
+    index_parser = subparsers.add_parser('index', help='指数相关查询')
+    index_subparsers = index_parser.add_subparsers(dest='command', help='指数命令')
+
+    # index search
+    index_search_parser = index_subparsers.add_parser('search', help='搜索指数')
+    index_search_parser.add_argument('keyword', type=str, help='搜索关键词（指数代码/名称）')
+    index_search_parser.add_argument('--all', '-a', action='store_true', help='显示所有结果')
+
+    # index info
+    index_info_parser = index_subparsers.add_parser('info', help='查看指数基本信息')
+    index_info_parser.add_argument('code', type=str, help='6位指数代码')
+
+    # index details
+    index_details_parser = index_subparsers.add_parser('details', help='查看指数完整详情')
+    index_details_parser.add_argument('code', type=str, help='6位指数代码')
+
+    # index batch
+    index_batch_parser = index_subparsers.add_parser('batch', help='批量查询指数详情')
+    index_batch_parser.add_argument('codes', type=str, nargs='+', help='指数代码列表（多个代码用空格分隔）')
+
+    # index update
+    index_subparsers.add_parser('update', help='更新指数数据库')
 
     args = parser.parse_args()
 
-    # 配置日志（在 parse_args 之后，以便根据 --debug 参数设置）
+    # 配置日志
     log_level = logging.DEBUG if args.debug else logging.WARNING
     logging.basicConfig(
         level=log_level,
         format='%(levelname)s: %(message)s' if args.debug else '%(message)s'
     )
 
-    # 执行对应的命令
-    if args.command == 'update':
-        print("正在更新基金数据库...")
-        # 清除内存缓存，强制重新从网络加载并写盘
-        get_fund_list.cache_clear()
-        if os.path.exists(FUND_DB_FILE):
-            os.remove(FUND_DB_FILE)
-        result = get_fund_list()
-        if not result.empty:
-            print(f"✅ 基金数据库更新成功！共 {len(result)} 只基金，已保存到 {FUND_DB_FILE}")
-        else:
-            print("❌ 基金数据库更新失败")
+    # 检查是否提供了 category
+    if not args.category:
+        parser.print_help()
+        return
 
-    elif args.command == 'search':
-        print_banner()
-        print(f"🔍 搜索关键词: {args.keyword}")
-        print()
+    # ============================================================
+    # 处理 bond 命令（基金）
+    # ============================================================
+    if args.category == 'bond':
+        if not args.command:
+            bond_parser.print_help()
+            return
 
-        result = search_funds(args.keyword)
-
-        if result.get('status') == 'error':
-            print(f"  ❌ {result['message']}")
-        elif result.get('count') == 0:
-            print(f"  ℹ️  未找到与 '{args.keyword}' 相关的基金")
-        else:
-            print_fund_search_results(result['data'], show_all=args.all)
-
-    elif args.command == 'query':
-        print_banner()
-        print(f"📊 查询基金: {args.code}")
-        print()
-
-        if args.detail:
-            # 完整详情模式：调用所有查询函数
-            print("=" * 70)
-            print("  📋 基金完整分析报告")
-            print("=" * 70)
+        if args.command == 'search':
+            print_banner()
+            print(f"🔍 搜索基金: {args.keyword}")
             print()
 
-            # 1. 基本信息
-            details = query_fund_details(args.code, year=get_current_year())
-            print_fund_details(details)
+            result = search_funds(args.keyword)
 
-            # 2. 基金经理详情
-            print("=" * 70)
-            print("  👤 基金经理详情")
-            print("=" * 70)
-            print()
-            manager_result = get_fund_manager_details(args.code)
-            print_manager_details(manager_result)
-
-            # 3. 投资组合完整分析（合并了持仓分析和资产配置）
-            print("=" * 70)
-            print("  📊 投资组合完整分析")
-            print("=" * 70)
-            print()
-            portfolio_result = get_fund_portfolio_analysis(args.code, year=get_current_year())
-            print_portfolio_analysis(portfolio_result)
-
-            # 4. 费用明细
-            print("=" * 70)
-            print("  💰 费用明细")
-            print("=" * 70)
-            print()
-            fee_result = get_fund_fee_details(args.code)
-            print_fee_details(fee_result)
-
-            # 5. 流动性信息
-            print("=" * 70)
-            print("  💧 流动性信息")
-            print("=" * 70)
-            print()
-            liquidity_result = get_fund_liquidity_info(args.code)
-            print_liquidity_info(liquidity_result)
-
-            # 6. 基金评级（如果有）
-            print("=" * 70)
-            print("  ⭐ 基金评级")
-            print("=" * 70)
-            print()
-            rating_result = get_fund_rating(args.code)
-            if rating_result.get('status') == 'success':
-                print_rating(rating_result.get('ratings'))
+            if result.get('status') == 'error':
+                print(f"  ❌ {result['message']}")
+            elif result.get('count') == 0:
+                print(f"  ℹ️  未找到与 '{args.keyword}' 相关的基金")
             else:
-                print(f"  ℹ️  {rating_result.get('message', '暂无评级数据')}")
+                print_fund_search_results(result['data'], show_all=args.all)
 
+        elif args.command == 'query':
+            print_banner()
+            print(f"📊 查询基金: {args.code}")
             print()
-            print("=" * 70)
-            print("  ✅ 分析报告完成")
-            print("=" * 70)
-        else:
-            # 标准模式：只显示基本信息
-            details = query_fund_details(args.code, year=get_current_year())
-            print_fund_details(details)
 
-    elif args.command == 'ranking':
-        print_banner()
-        print(f"🏆 {args.fund_type}基金排行榜")
-        print()
+            if args.detail:
+                # 完整详情模式：调用所有查询函数
+                print("=" * 70)
+                print("  📋 基金完整分析报告")
+                print("=" * 70)
+                print()
 
-        result = get_fund_rankings(args.fund_type)
-        print_rankings(result, top_n=args.top)
+                # 1. 基本信息
+                details = query_fund_details(args.code, year=get_current_year())
+                print_fund_details(details)
 
-    elif args.command == 'rating':
-        print_banner()
-        print(f"⭐ 查询基金评级: {args.code}")
-        print()
+                # 2. 基金经理详情
+                print("=" * 70)
+                print("  👤 基金经理详情")
+                print("=" * 70)
+                print()
+                manager_result = get_fund_manager_details(args.code)
+                print_manager_details(manager_result)
 
-        result = get_fund_rating(args.code)
-        if result.get('status') == 'success':
-            print_rating(result.get('ratings'))
-        else:
-            print(f"  ❌ {result['message']}")
+                # 3. 投资组合完整分析（合并了持仓分析和资产配置）
+                print("=" * 70)
+                print("  📊 投资组合完整分析")
+                print("=" * 70)
+                print()
+                portfolio_result = get_fund_portfolio_analysis(args.code, year=get_current_year())
+                print_portfolio_analysis(portfolio_result)
 
-    elif args.command == 'manager':
-        print_banner()
-        print(f"👤 基金经理详情: {args.code}")
-        print()
+                # 4. 费用明细
+                print("=" * 70)
+                print("  💰 费用明细")
+                print("=" * 70)
+                print()
+                fee_result = get_fund_fee_details(args.code)
+                print_fee_details(fee_result)
 
-        result = get_fund_manager_details(args.code)
-        print_manager_details(result)
+                # 5. 流动性信息
+                print("=" * 70)
+                print("  💧 流动性信息")
+                print("=" * 70)
+                print()
+                liquidity_result = get_fund_liquidity_info(args.code)
+                print_liquidity_info(liquidity_result)
 
-    elif args.command == 'holdings':
-        print_banner()
-        print(f"📊 持仓动态分析: {args.code}")
-        print()
+                # 6. 基金评级（如果有）
+                print("=" * 70)
+                print("  ⭐ 基金评级")
+                print("=" * 70)
+                print()
+                rating_result = get_fund_rating(args.code)
+                if rating_result.get('status') == 'success':
+                    ratings = rating_result.get('ratings')
+                    if ratings:
+                        for key, value in ratings.items():
+                            print(f"  {key}: {value}")
+                    else:
+                        print(f"  {rating_result.get('message', '暂无评级数据')}")
+                else:
+                    print(f"  {rating_result.get('message', '查询失败')}")
+                print()
 
-        result = get_fund_holdings_analysis(args.code, year=get_current_year())
-        print_holdings_analysis(result)
-
-    elif args.command == 'allocation':
-        print_banner()
-        print(f"🎯 资产配置结构: {args.code}")
-        print()
-
-        # 如果用户没有指定年份，使用当前年份
-        year = args.year if args.year else get_current_year()
-        result = get_fund_asset_allocation(args.code, date=year)
-        print_asset_allocation(result)
-
-    elif args.command == 'fee':
-        print_banner()
-        print(f"💰 费用明细: {args.code}")
-        print()
-
-        result = get_fund_fee_details(args.code)
-        print_fee_details(result)
-
-    elif args.command == 'liquidity':
-        print_banner()
-        print(f"💧 流动性信息: {args.code}")
-        print()
-
-        result = get_fund_liquidity_info(args.code)
-        print_liquidity_info(result)
-
-    elif args.command == 'performance':
-        print_banner()
-        print(f"📈 基金业绩: {args.code}")
-        print()
-
-        result = get_fund_performance(args.code)
-        print_performance(result)
-
-    elif args.command == 'risk':
-        print_banner()
-        print(f"⚠️  风险指标: {args.code}")
-        print()
-
-        result = get_fund_risk_metrics(args.code)
-        print_risk_metrics(result)
-
-    elif args.command == 'top-holdings':
-        print_banner()
-        print(f"💼 十大重仓股: {args.code}")
-        print()
-
-        result = get_fund_top_holdings(args.code, year=get_current_year())
-        print_top_holdings(result)
-
-    elif args.command == 'portfolio':
-        print_banner()
-        print(f"📊 投资组合完整分析: {args.code}")
-        print()
-
-        result = get_fund_portfolio_analysis(args.code, year=get_current_year())
-        print_portfolio_analysis(result)
-
-    elif args.command == 'heatmap':
-        print_banner()
-        print(f"📈 行业估值热力图 | 分类: {args.category} | 排序: {args.sort}")
-        print()
-
-        try:
-            # 导入行业估值模块
-            from industry_valuation import (
-                get_valuation_heatmap,
-                format_heatmap_table,
-                get_investment_suggestions
-            )
-
-            # 获取热力图数据
-            heatmap_data = get_valuation_heatmap()
-
-            if args.json:
-                # JSON输出模式
-                import json
-                print(json.dumps(heatmap_data, ensure_ascii=False, indent=2))
+                print("=" * 70)
+                print("  ✅ 分析报告完成")
+                print("=" * 70)
             else:
-                # 表格输出模式
-                table = format_heatmap_table(heatmap_data)
-                print(table)
+                # 标准模式：只显示基本信息
+                details = query_fund_details(args.code, year=get_current_year())
+                print_fund_details(details)
 
-                if args.suggestions:
-                    print("\n" + "=" * 80)
-                    print("📋 投资建议摘要")
-                    print("=" * 80)
-                    suggestions = get_investment_suggestions(heatmap_data)
-                    print(suggestions)
+        elif args.command == 'ranking':
+            print_banner()
+            print(f"🏆 基金排行榜 - {args.fund_type}")
+            print()
 
-        except ImportError as e:
-            print(f"❌ 导入行业估值模块失败: {e}")
-            print("请确保已安装 industry_valuation.py 模块")
-        except Exception as e:
-            print(f"❌ 生成热力图失败: {e}")
+            rankings = get_fund_rankings(args.fund_type, top=args.top)
+            print(f"  {'排名':<6}{'基金代码':<12}{'基金名称':<25}{'近1年收益率':<12}")
+            print("  " + "-" * 60)
+            for i, fund in enumerate(rankings, 1):
+                print(f"  {i:<6}{fund['基金代码']:<12}{fund['基金简称']:<25}{fund['近1年']:<12}")
+
+        elif args.command == 'rating':
+            print_banner()
+            print(f"⭐ 查询基金评级: {args.code}")
+            print()
+
+            rating = get_fund_rating(args.code)
+            if rating.get('status') == 'success':
+                ratings = rating.get('ratings')
+                if ratings:
+                    for key, value in ratings.items():
+                        print(f"  {key}: {value}")
+                else:
+                    print(f"  {rating.get('message', '暂无评级数据')}")
+            else:
+                print(f"  ❌ {rating.get('message', '查询失败')}")
+
+        elif args.command == 'manager':
+            print_banner()
+            print(f"👤 查询基金经理: {args.code}")
+            print()
+
+            manager = get_fund_manager_details(args.code)
+            if manager.get('status') == 'success':
+                print_fund_details({'manager_details': manager})
+            else:
+                print(f"  ❌ {manager.get('message', '查询失败')}")
+
+        elif args.command == 'holdings':
+            print_banner()
+            print(f"💼 持仓动态分析: {args.code}")
+            print()
+
+            holdings = get_fund_top_holdings(args.code)
+            if holdings.get('status') == 'success':
+                print_fund_details({'top_holdings': holdings['data']})
+            else:
+                print(f"  ❌ {holdings.get('message', '查询失败')}")
+
+        elif args.command == 'portfolio':
+            print_banner()
+            print(f"📊 投资组合分析: {args.code}")
+            print()
+
+            portfolio = get_fund_portfolio_analysis(args.code, year=get_current_year())
+            print_portfolio_analysis(portfolio)
+
+        elif args.command == 'fee':
+            print_banner()
+            print(f"💰 费用明细: {args.code}")
+            print()
+
+            fee = get_fund_fee_details(args.code)
+            print_fee_details(fee)
+
+        elif args.command == 'liquidity':
+            print_banner()
+            print(f"💧 流动性信息: {args.code}")
+            print()
+
+            liquidity = get_fund_liquidity_info(args.code)
+            print_liquidity_info(liquidity)
+
+        elif args.command == 'performance':
+            print_banner()
+            print(f"📈 基金业绩: {args.code}")
+            print()
+
+            perf = get_fund_performance(args.code)
+            if perf:
+                for period, return_rate in perf.items():
+                    print(f"  {period}: {return_rate}")
+            else:
+                print("  ℹ️  暂无业绩数据")
+
+        elif args.command == 'risk':
+            print_banner()
+            print(f"⚠️  风险指标: {args.code}")
+            print()
+
+            risk = get_fund_risk_metrics(args.code)
+            if risk:
+                for key, value in risk.items():
+                    print(f"  {key}: {value}")
+            else:
+                print("  ℹ️  暂无风险数据")
+
+        elif args.command == 'top-holdings':
+            print_banner()
+            print(f"💼 十大重仓股: {args.code}")
+            print()
+
+            holdings = get_fund_top_holdings(args.code, year=get_current_year())
+            if holdings:
+                for i, holding in enumerate(holdings[:10], 1):
+                    print(f"  {i}. {holding}")
+            else:
+                print("  ℹ️  暂无持仓数据")
+
+        elif args.command == 'update':
+            print("正在更新基金数据库...")
+            get_fund_list.cache_clear()
+            if os.path.exists(FUND_DB_FILE):
+                os.remove(FUND_DB_FILE)
+            result = get_fund_list()
+            if not result.empty:
+                print(f"✅ 基金数据库更新成功！共 {len(result)} 只基金，已保存到 {FUND_DB_FILE}")
+            else:
+                print("❌ 基金数据库更新失败")
+
+        else:
+            bond_subparsers.choices[args.command].print_help()
+
+    # ============================================================
+    # 处理 index 命令（指数）
+    # ============================================================
+    elif args.category == 'index':
+        if not args.command:
+            index_parser.print_help()
+            return
+
+        if args.command == 'search':
+            print_banner()
+            print(f"🔍 搜索指数: {args.keyword}")
+            print()
+
+            results = search_indices_all(args.keyword)
+
+            if not results:
+                print(f"  ℹ️  未找到与 '{args.keyword}' 相关的指数")
+            else:
+                print_index_search_results(results, show_all=args.all)
+
+        elif args.command == 'info':
+            print_banner()
+            print(f"📊 查询指数基本信息: {args.code}")
+            print()
+
+            info = get_index_info_by_code(args.code)
+            print_index_info(info)
+
+        elif args.command == 'details':
+            print_banner()
+            print(f"📊 查询指数完整详情: {args.code}")
+            print()
+
+            details = get_index_details(args.code)
+            print_index_details(details)
+
+        elif args.command == 'batch':
+            print_banner()
+            print(f"📊 批量查询指数详情: {' '.join(args.codes)}")
+            print()
+
+            results = get_index_details_batch(args.codes)
+
+            for code, details in results.items():
+                print(f"  === {code} ===")
+                print_index_details(details)
+                print()
+
+        elif args.command == 'update':
+            print("正在更新指数数据库...")
+            result = update_index_cache()
+            if result and isinstance(result, dict):
+                total = result.get('total', 0)
+                print(f"✅ 指数数据库更新成功！共 {total} 个指数，已保存到 {INDEX_DB_FILE}")
+            else:
+                print("❌ 指数数据库更新失败")
+
+        else:
+            index_subparsers.choices[args.command].print_help()
 
     else:
         parser.print_help()

@@ -816,6 +816,290 @@ def get_portfolio_analysis() -> dict:
         return {"success": False, "error": str(e)}
 
 
+@mcp.tool()
+def get_index_pe(index_name: str) -> dict:
+    """
+    获取宽基指数PE/PB估值数据（含历史分位）。
+
+    支持的宽基指数：上证50、沪深300、中证500、中证800、中证100、中证1000、上证180、上证380、创业板50、深证红利、深证100、上证红利
+
+    Args:
+        index_name: 指数名称，如 "沪深300", "中证500"
+
+    Returns:
+        指数估值数据，包括：
+        - PE_TTM、PB、收盘点位
+        - PE分位（10年/5年/3年）
+        - PB分位（10年/5年/3年）
+        - 估值等级（极度低估/低估/偏低/合理/偏高/高估/极度高估）
+        - 数据点数
+    """
+    logger.info(f"📊 查询宽基指数估值: {index_name}")
+
+    result = fund_tool.get_index_pe(index_name)
+
+    if result.get('status') == 'error':
+        logger.error(f"❌ 查询失败: {result.get('message')}")
+        return {
+            "success": False,
+            "error": result.get('message')
+        }
+
+    logger.info(f"✅ 成功获取指数 {index_name} 的估值数据")
+    return {
+        "success": True,
+        "data": result
+    }
+
+
+@mcp.tool()
+def get_csindex_valuation(index_code: str) -> dict:
+    """
+    获取中证行业/主题指数估值数据。
+
+    支持的中证指数代码：000300(沪深300)、000905(中证500)、000852(中证1000)、000016(上证50)、399006(创业板指)、000688(科创50)、399967(中证军工)、000819(有色金属)、399987(中证白酒)、000991(全指医药)、H30225(中证机器人)、399971(中证传媒)、399997(中证白酒)、H30166(CS创新药)、931865(中证半导)、H30174(中证新能源)
+
+    Args:
+        index_code: 中证指数代码，如 "000688", "H30225"
+
+    Returns:
+        中证指数估值数据，包括：
+        - 指数代码、指数名称
+        - 市盈率1（静态PE）、市盈率2（滚动PE）
+        - 股息率1（近12月）、股息率2（预期）
+        - 日期
+    """
+    logger.info(f"📊 查询中证指数估值: {index_code}")
+
+    result = fund_tool.get_csindex_valuation(index_code)
+
+    if result.get('status') == 'error':
+        logger.error(f"❌ 查询失败: {result.get('message')}")
+        return {
+            "success": False,
+            "error": result.get('message')
+        }
+
+    logger.info(f"✅ 成功获取中证指数 {index_code} 的估值数据")
+    return {
+        "success": True,
+        "data": result
+    }
+
+
+@mcp.tool()
+def get_index_valuation_batch(
+    lg_indices: Optional[list] = None,
+    csindex_codes: Optional[list] = None
+) -> dict:
+    """
+    批量查询指数估值（宽基指数 + 中证行业指数）。
+
+    Args:
+        lg_indices: 宽基指数名称列表，如 ["沪深300", "中证500"]
+        csindex_codes: 中证指数代码列表，如 ["000688", "399967"]
+
+    Returns:
+        批量估值结果，包括：
+        - 乐咕宽基指数: {指数名称: 估值数据}
+        - 中证行业指数: {指数名称: 估值数据}
+    """
+    logger.info(f"📊 批量查询指数估值")
+
+    result = fund_tool.get_index_valuation_batch(lg_indices=lg_indices, csindex_codes=csindex_codes)
+
+    logger.info("✅ 批量估值查询完成")
+    return {
+        "success": True,
+        "data": result
+    }
+
+
+@mcp.tool()
+def get_portfolio_index_valuation() -> dict:
+    """
+    一键获取投资组合相关的所有指数估值。
+
+    包含6个宽基指数（沪深300、中证500、中证1000、上证50、创业板50、深证红利）
+    和8个行业指数（科创50、中证军工、有色金属、中证白酒、全指医药、中证机器人、中证半导、中证新能源）。
+
+    Returns:
+        投资组合指数估值数据，包括：
+        - 乐咕宽基指数: 6个宽基指数的估值数据
+        - 中证行业指数: 8个行业指数的估值数据
+    """
+    logger.info("📊 获取投资组合相关指数估值")
+
+    result = fund_tool.get_portfolio_index_valuation()
+
+    logger.info("✅ 投资组合指数估值查询完成")
+    return {
+        "success": True,
+        "data": result
+    }
+
+
+@mcp.tool()
+def compare_fund_with_index(fund_code: str, index_name: str = "沪深300") -> dict:
+    """
+    对比基金与指数的估值情况。
+
+    Args:
+        fund_code: 6位基金代码
+        index_name: 对比的指数名称，默认"沪深300"
+
+    Returns:
+        基金与指数的对比数据，包括：
+        - 基金: 基金详细信息
+        - 对比指数: 指数估值数据
+    """
+    logger.info(f"📊 对比基金 {fund_code} 与指数 {index_name}")
+
+    result = fund_tool.compare_fund_with_index(fund_code, index_name)
+
+    logger.info("✅ 基金与指数对比完成")
+    return {
+        "success": True,
+        "data": result
+    }
+
+
+
+
+# ============================================================
+# 指数查询工具
+# ============================================================
+
+@mcp.tool()
+def search_indices(keyword: str, limit: int = 50) -> dict:
+    """
+    搜索中国A股指数（宽基、行业、主题、策略、风格）
+
+    Args:
+        keyword: 搜索关键词（支持指数代码、名称）
+        limit: 返回结果数量限制，默认50
+
+    Returns:
+        包含搜索结果的字典，包含指数代码、名称、分类等信息
+    """
+    logger.info(f"🔍 搜索指数: {keyword}")
+
+    results = fund_tool.search_indices_all(keyword)
+
+    if not results:
+        logger.warning(f"⚠️ 未找到与 '{keyword}' 相关的指数")
+        return {
+            "success": False,
+            "error": f"未找到与 '{keyword}' 相关的指数"
+        }
+
+    # 限制返回数量
+    results = results[:limit]
+
+    logger.info(f"✅ 找到 {len(results)} 个指数")
+    return {
+        "success": True,
+        "count": len(results),
+        "indices": results
+    }
+
+
+@mcp.tool()
+def get_index_info(code: str) -> dict:
+    """
+    获取指数的基本信息
+
+    Args:
+        code: 6位指数代码
+
+    Returns:
+        指数基本信息，包括：
+        - 代码、名称
+        - 分类（broad/industry/sector/strategy/style）
+        - 指数类别（规模/行业/主题/策略/风格）
+        - 资产类别
+        - 基日、发布日期
+    """
+    logger.info(f"📊 查询指数基本信息: {code}")
+
+    info = fund_tool.get_index_info_by_code(code)
+
+    if not info:
+        logger.error(f"❌ 未找到指数 {code}")
+        return {
+            "success": False,
+            "error": f"未找到指数 {code}"
+        }
+
+    logger.info(f"✅ 成功获取指数 {code} 的基本信息")
+    return {
+        "success": True,
+        "index": info
+    }
+
+
+@mcp.tool()
+def get_index_details(code: str) -> dict:
+    """
+    获取指数的完整详情
+
+    Args:
+        code: 6位指数代码
+
+    Returns:
+        指数详细信息，包括：
+        - 基本信息（代码、名称、分类、发布日期）
+        - 当前值（收盘点位、日期、涨跌幅）
+        - 业绩表现（1周/1月/3月/6月/1年/3年/今年收益率）
+        - 估值数据（PE-TTM、PB）
+        - 历史分位（PE/PB的3年/5年/10年百分位）
+        - 估值等级（低估/合理/高估）
+        - 数据源
+    """
+    logger.info(f"📊 查询指数完整详情: {code}")
+
+    details = fund_tool.get_index_details(code)
+
+    if details.get("status") == "error":
+        logger.error(f"❌ 查询失败: {details.get('message')}")
+        return {
+            "success": False,
+            "error": details.get("message")
+        }
+
+    logger.info(f"✅ 成功获取指数 {code} 的详细信息")
+    return {
+        "success": True,
+        "index": details
+    }
+
+
+@mcp.tool()
+def get_index_details_batch(codes: list) -> dict:
+    """
+    批量获取多个指数的完整详情
+
+    Args:
+        codes: 指数代码列表
+
+    Returns:
+        批量查询结果，包含每个指数的详细信息
+    """
+    logger.info(f"📊 批量查询指数详情: {', '.join(codes)}")
+
+    results = fund_tool.get_index_details_batch(codes)
+
+    success_count = sum(1 for r in results.values() if r.get("status") == "success")
+    logger.info(f"✅ 批量查询完成，成功 {success_count}/{len(codes)}")
+
+    return {
+        "success": True,
+        "total": len(codes),
+        "success_count": success_count,
+        "indices": results
+    }
+
+
 # === MCP 资源定义（可选） ===
 
 @mcp.resource("fund://list")
@@ -897,7 +1181,18 @@ if __name__ == "__main__":
     logger.info("  • get_us_index_valuation - 标普500估值（PE/PB/股息率+历史分位）")
     logger.info("  • get_hk_index_valuation - 港股/中概指数估值")
     logger.info("  • get_portfolio_analysis - 投资组合综合分析")
+    logger.info("  • get_index_pe - 查询宽基指数PE/PB估值")
+    logger.info("  • get_csindex_valuation - 查询中证行业指数估值")
+    logger.info("  • get_index_valuation_batch - 批量查询指数估值")
+    logger.info("  • get_portfolio_index_valuation - 一键查询投资组合相关指数估值")
+    logger.info("  • compare_fund_with_index - 对比基金与指数估值")
     logger.info("  • refresh_fund_cache - 刷新缓存")
+    logger.info("")
+    logger.info("  === 指数查询工具 ===")
+    logger.info("  • search_indices - 搜索指数")
+    logger.info("  • get_index_info - 获取指数基本信息")
+    logger.info("  • get_index_details - 获取指数完整详情")
+    logger.info("  • get_index_details_batch - 批量获取指数详情")
     logger.info("")
     logger.info("📦 可用资源:")
     logger.info("  • fund://list - 基金列表")

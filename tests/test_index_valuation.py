@@ -13,7 +13,7 @@ import pytest
 # Ensure project root is in path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from index_valuation import (
+from src.fund_tools.valuation import (
     get_index_pe,
     get_csindex_valuation,
     get_index_valuation_batch,
@@ -158,6 +158,17 @@ class TestFundToolIntegration:
         from src.fund_tools import query_fund_details, search_funds
         assert callable(query_fund_details)
         assert callable(search_funds)
+
+    def test_import_valuation_from_fund_tools(self):
+        """src.fund_tools should export valuation functions."""
+        from src.fund_tools import (
+            get_index_pe,
+            get_csindex_valuation,
+            get_portfolio_index_valuation,
+        )
+        assert callable(get_index_pe)
+        assert callable(get_csindex_valuation)
+        assert callable(get_portfolio_index_valuation)
 
     def test_query_fund_format(self):
         """Query a real fund and check format."""
