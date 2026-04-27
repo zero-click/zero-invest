@@ -156,3 +156,5 @@ cython_debug/
 *.html
 *.js
 fund_database.json
+index_database.json
+*~
