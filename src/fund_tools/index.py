@@ -700,19 +700,69 @@ def fetch_index_valuation_with_fallback(
     return result
 
 # 辅助函数：从乐咕获得估值结果？？ why？
-def _build_lg_valuation(index_name: str, code: Optional[str] = None, years: int = 10) -> Dict:
+def _build_lg_valuation(index_name: str, code: Optional[str] = None, years: int = 10, max_retries: int = 2) -> Dict:
     """
     构造乐咕乐股估值结果（内部使用）
+
+    Args:
+        index_name: 指数名称
+        code: 指数代码（6位）
+        years: 历史数据年数
+        max_retries: 最大重试次数（默认3次，仅对网络错误重试）
     """
     if years <= 0:
         return {}
 
-    try:
-        symbol = LG_INDEX_CODE_MAP.get(str(code)) or LG_INDEX_MAP.get(index_name)
-        if not symbol:
+    import time
+    import requests
+
+    symbol = LG_INDEX_CODE_MAP.get(str(code)) or LG_INDEX_MAP.get(index_name)
+    if not symbol:
+        return {}
+
+    # 重试机制：仅对网络错误和解析错误重试
+    df_pe = None
+    df_pb = None
+
+    for attempt in range(max_retries):
+        try:
+            df_pe = ak.stock_index_pe_lg(symbol=symbol)
+            df_pb = ak.stock_index_pb_lg(symbol=symbol)
+            break  # 成功则退出重试循环
+        except (requests.exceptions.RequestException, requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout, requests.exceptions.HTTPError,
+                ConnectionError, TimeoutError) as e:
+            # 网络相关错误，重试
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 2  # 递增延迟：2秒、4秒、6秒
+                logger.debug(f"乐咕乐股网络错误 ({index_name})，{wait_time}秒后重试 {attempt + 1}/{max_retries}: {e}")
+                time.sleep(wait_time)
+            else:
+                logger.warning(f"从乐咕乐股获取估值数据失败 ({index_name})，网络错误已重试 {max_retries} 次: {e}")
+                return {}
+        except (AttributeError, KeyError, TypeError) as e:
+            # 解析错误（可能是网站返回了错误页面或空页面），重试
+            error_msg = str(e)
+            if "'NoneType' object has no attribute" in error_msg or "attrs" in error_msg:
+                # BeautifulSoup 解析错误，通常是临时网络问题
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    logger.debug(f"乐咕乐股解析错误 ({index_name})，{wait_time}秒后重试 {attempt + 1}/{max_retries}: {e}")
+                    time.sleep(wait_time)
+                else:
+                    logger.warning(f"从乐咕乐股获取估值数据失败 ({index_name})，解析错误已重试 {max_retries} 次: {e}")
+                    return {}
+            else:
+                # 其他解析错误，不重试
+                logger.warning(f"从乐咕乐股获取估值数据失败 ({index_name}): {e}")
+                return {}
+        except Exception as e:
+            # 其他未知错误，不重试
+            logger.warning(f"从乐咕乐股获取估值数据失败 ({index_name}): {e}")
             return {}
-        df_pe = ak.stock_index_pe_lg(symbol=symbol)
-        df_pb = ak.stock_index_pb_lg(symbol=symbol)
+
+    # 数据处理阶段
+    try:
         df_pe["日期"] = pd.to_datetime(df_pe["日期"])
         df_pb["日期"] = pd.to_datetime(df_pb["日期"])
 
@@ -776,7 +826,7 @@ def _build_lg_valuation(index_name: str, code: Optional[str] = None, years: int 
             result["PB参考_10年"] = result[f"PB参考_{years}年"]
         return result
     except Exception as e:
-        logger.warning(f"从乐咕乐股获取估值数据失败 ({index_name}): {e}")
+        logger.warning(f"处理乐咕乐股数据失败 ({index_name}): {e}")
         return {}
 
 # 辅助函数：获得指数股息率
