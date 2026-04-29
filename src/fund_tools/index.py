@@ -471,8 +471,21 @@ def _calc_valuation_reference(series: pd.Series, value: float) -> Dict[str, Opti
 
 
 # 辅助函数： 基于历史数据计算PE分位值
-def _build_csindex_pe_valuation(df_hist: pd.DataFrame, latest_pe: float, years: int = 10) -> Dict:
-    """基于中证历史行情里的滚动市盈率计算 PE 历史分位。"""
+def _build_csindex_pe_valuation(
+    df_hist: pd.DataFrame,
+    latest_pe: float,
+    years: int = 10,
+    publish_date: Optional[str] = None,
+) -> Dict:
+    """
+    基于中证历史行情里的滚动市盈率计算 PE 历史分位。
+
+    Args:
+        df_hist: 历史行情数据
+        latest_pe: 最新的 PE 值
+        years: 时间窗口（年）
+        publish_date: 指数发布日期，格式 YYYY-MM-DD。如果提供，只使用发布后的数据
+    """
     if df_hist is None or df_hist.empty or "滚动市盈率" not in df_hist.columns or "日期" not in df_hist.columns:
         return {}
 
@@ -484,6 +497,16 @@ def _build_csindex_pe_valuation(df_hist: pd.DataFrame, latest_pe: float, years: 
 
     if hist.empty:
         return {}
+
+    # 如果提供了发布日期，只使用发布后的数据
+    if publish_date:
+        try:
+            pub_date = pd.to_datetime(publish_date, format="%Y-%m-%d", errors="coerce")
+            if pd.notna(pub_date):
+                hist = hist[hist["日期"] >= pub_date]
+                logger.info(f"计算 PE 分位时使用指数发布日期后的数据: {publish_date} 起，共 {len(hist)} 条")
+        except Exception as e:
+            logger.warning(f"解析发布日期失败: {publish_date}, 错误: {e}")
 
     cutoff_main = datetime.now() - timedelta(days=years * 365)
     cutoff_5y = datetime.now() - timedelta(days=5 * 365)
@@ -532,10 +555,11 @@ def _calc_returns(df: pd.DataFrame, current_price: float) -> Dict[str, Optional[
 # 辅助函数：从乐咕获取pe/pb 分位值
 def _get_lg_valuation(index_name: str, code: Optional[str] = None) -> Dict:
     """
-    从乐咕乐股获取PE/PB历史分位
+    从乐咕乐股获取PE/PB历史分位（仅支持宽基指数）
 
     Args:
         index_name: 指数名称
+        code: 指数代码（6位）
 
     Returns:
         PE/PB分位数据
@@ -563,6 +587,117 @@ def _get_lg_valuation(index_name: str, code: Optional[str] = None) -> Dict:
         "估值口径": valuation.get("估值口径"),
         "数据点数_10年": valuation.get("数据点数"),
     }
+
+
+def fetch_index_valuation_with_fallback(
+    code: str,
+    index_name: str,
+    publish_date: Optional[str] = None,
+) -> Dict:
+    """
+    获取指数估值数据（多数据源 fallback 机制）
+
+    数据源优先级：
+      1. 乐咕乐股（stock_index_pe_lg, stock_index_pb_lg）- 仅宽基指数，提供完整PE/PB分位
+      2. 中证指数历史行情（stock_zh_index_hist_csindex）- 提供滚动市盈率，可计算分位
+      3. 证监会行业PE（stock_industry_pe_ratio_cninfo）- 仅静态PE，无历史分位
+
+    Args:
+        code: 指数代码（6位）
+        index_name: 指数名称
+        publish_date: 指数发布日期（用于过滤历史数据）
+
+    Returns:
+        估值数据字典
+    """
+    result = {
+        "status": "success",
+        "代码": code,
+        "名称": index_name,
+    }
+
+    # 尝试数据源1：乐咕乐股（仅宽基指数）
+    lg_valuation = _get_lg_valuation(index_name, code=code)
+    if lg_valuation:
+        result.update(lg_valuation)
+        result["估值数据源"] = "乐咕乐股"
+        logger.debug(f"指数 {code} 估值数据来源: 乐咕乐股")
+        return result
+
+    logger.debug(f"指数 {code} 乐咕乐股不支持，尝试中证指数")
+
+    # 尝试数据源2：中证指数历史行情
+    try:
+        df_hist = fetch_index_history_data(code)
+        if df_hist is not None and not df_hist.empty and "滚动市盈率" in df_hist.columns:
+            latest = df_hist.iloc[-1]
+            pe_ttm = latest.get("滚动市盈率")
+
+            if pd.notna(pe_ttm):
+                csindex_pe_valuation = _build_csindex_pe_valuation(
+                    df_hist, float(pe_ttm), publish_date=publish_date
+                )
+                if csindex_pe_valuation:
+                    result.update(csindex_pe_valuation)
+                    result["估值数据源"] = "中证指数"
+                    result["PB"] = None  # 中证指数历史行情不提供 PB
+                    result["PB估值等级"] = "N/A"
+                    result["估值等级_PB"] = "N/A"
+                    logger.debug(f"指数 {code} 估值数据来源: 中证指数")
+                    return result
+                else:
+                    result["PE_TTM"] = round(float(pe_ttm), 2)
+                    result["估值数据源"] = "中证指数"
+                    result["PB"] = None
+                    result["PB估值等级"] = "N/A"
+                    result["估值等级_PB"] = "N/A"
+        else:
+            # 中证指数历史行情不包含滚动市盈率
+            logger.debug(f"指数 {code} 中证指数历史行情不包含'滚动市盈率'字段")
+
+        # 如果中证指数也没有数据，尝试数据源3：证监会行业PE
+        logger.debug(f"指数 {code} 中证指数历史行情无PE，尝试证监会行业PE")
+
+    except Exception as e:
+        logger.warning(f"从中证指数获取 {code} 估值数据失败: {e}")
+
+    # 尝试数据源3：证监会行业PE（仅静态PE）
+    try:
+        from datetime import datetime
+        for days_back in range(max(1, 30)):
+            target_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+            try:
+                df = ak.stock_industry_pe_ratio_cninfo(
+                    symbol="证监会行业分类",
+                    date=target_date,
+                )
+            except Exception:
+                continue
+
+            if df is None or df.empty:
+                continue
+
+            # 尝试匹配行业名称（目前暂不实现，因为需要行业映射）
+            logger.debug(f"证监会行业PE暂不支持指数 {code}")
+            break
+
+    except Exception as e:
+        logger.debug(f"从证监会行业获取 {code} 估值数据失败: {e}")
+
+    # 所有数据源都失败
+    result["估值数据源"] = "无"  # 标识数据源
+    result["PE_TTM"] = None
+    result["PB"] = None
+    result["PE估值等级"] = "N/A"
+    result["PB估值等级"] = "N/A"
+    result["估值等级_PE"] = "N/A"
+    result["估值等级_PB"] = "N/A"
+    result["估值等级"] = "N/A"
+    result["估值口径"] = {
+        "说明": "所有数据源均无法获取该指数的估值数据",
+    }
+
+    return result
 
 # 辅助函数：从乐咕获得估值结果？？ why？
 def _build_lg_valuation(index_name: str, code: Optional[str] = None, years: int = 10) -> Dict:
@@ -858,7 +993,7 @@ def get_index_query(
 
     return result
 
-
+# 指数函数：获得指数估值数据
 def get_index_valuation(
     code: str,
     df_hist: Optional[pd.DataFrame] = None,
@@ -892,43 +1027,20 @@ def get_index_valuation(
 
         result["名称"] = index_info["name"]
 
-        if df_hist is None or df_hist.empty:
-            logger.info(f"正在获取指数 {code} 的历史行情...")
-            df_hist = fetch_index_history_data(code)
+        # 使用统一的多数据源 fallback 机制获取估值数据
+        valuation_data = fetch_index_valuation_with_fallback(
+            code,
+            index_info["name"],
+            publish_date=index_info.get("publish_date"),
+        )
 
-        if df_hist is None or df_hist.empty:
-            return {
-                "status": "error",
-                "message": f"未找到指数 {code} 的历史行情数据",
-            }
+        if valuation_data.get("status") == "error":
+            return valuation_data
 
-        latest = df_hist.iloc[-1]
+        result.update(valuation_data)
 
-        lg_valuation = _get_lg_valuation(index_info["name"], code=code)
-        if lg_valuation:
-            result.update(lg_valuation)
-            result["估值数据源"] = "乐咕乐股"
-        else:
-            pe_ttm = latest.get("滚动市盈率")
-            if pd.notna(pe_ttm):
-                csindex_pe_valuation = _build_csindex_pe_valuation(df_hist, float(pe_ttm))
-                if csindex_pe_valuation:
-                    result.update(csindex_pe_valuation)
-                else:
-                    result["PE_TTM"] = round(float(pe_ttm), 2)
-            result["估值数据源"] = "中证指数"
-            result["PB估值等级"] = "N/A"
-            result["估值等级_PB"] = "N/A"
-            if "PE估值等级" not in result:
-                result["PE估值等级"] = "N/A"
-                result["估值等级_PE"] = "N/A"
-                result["估值等级"] = "N/A"
-                result["估值口径"] = {
-                    "PE_TTM": "中证指数历史行情接口返回的滚动市盈率",
-                    "历史分位": "当前数据源未提供足够历史估值样本，暂不计算",
-                }
-
-        logger.info(f"正在获取指数 {code} 的股息率...")
+        # 获取股息率（从中证指数）
+        logger.debug(f"正在获取指数 {code} 的股息率...")
         dividend_yield = _get_dividend_yield(code)
         if dividend_yield:
             result.update(dividend_yield)
@@ -938,7 +1050,9 @@ def get_index_valuation(
                 "股息率2": "中证指数 stock_zh_index_value_csindex 的 D/P2（计算用股本口径）",
             })
 
-        result["数据点数"] = len(df_hist)
+        # 如果有传入历史数据，记录数据点数
+        if df_hist is not None and not df_hist.empty:
+            result["数据点数"] = len(df_hist)
 
     except Exception as e:
         logger.error(f"获取指数 {code} 估值数据失败: {e}")
@@ -949,7 +1063,7 @@ def get_index_valuation(
 
     return result
 
-
+# 指数函数：获取指数完整详情（基础查询 + 估值分析）
 def get_index_details(code: str) -> Dict:
     """
     获取指数完整详情
@@ -1002,7 +1116,7 @@ def get_index_details(code: str) -> Dict:
 
     return result
 
-
+# 辅助函数：批量获取指数详情
 def get_index_details_batch(codes: List[str]) -> Dict[str, Dict]:
     """
     批量获取指数详情
@@ -1020,11 +1134,7 @@ def get_index_details_batch(codes: List[str]) -> Dict[str, Dict]:
 
     return results
 
-
-# ============================================================
-# 指数风险分析
-# ============================================================
-
+# 辅助函数：计算年化波动率
 def _calc_volatility(df: pd.DataFrame, period_days: int = 252) -> Optional[float]:
     """
     计算年化波动率
