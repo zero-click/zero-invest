@@ -102,6 +102,7 @@ def _is_non_retryable_history_error(exc: Exception) -> bool:
         "Columns must be same length as key",
         "DataFrame is empty",
         "empty data",
+        "'date'",  # sina 数据源不支持的指数会抛出 KeyError('date')
     ]
     return any(marker in message for marker in markers)
 
@@ -119,14 +120,12 @@ def _fetch_history_with_retry(fetcher, source_name: str, retries: int = 2) -> Op
                 return df
         except Exception as e:
             last_error = e
-            logger.warning(f"获取指数历史行情失败 [{source_name}] 第{attempt}/{retries}次: {e}")
+            logger.debug(f"获取指数历史行情失败 [{source_name}] 第{attempt}/{retries}次: {e}")
             if _is_non_retryable_history_error(e):
-                logger.warning(f"获取指数历史行情失败 [{source_name}]，判定为不可重试，直接切换数据源")
+                logger.debug(f"获取指数历史行情失败 [{source_name}]，判定为不可重试，直接切换数据源")
                 break
         time.sleep(0.2)
 
-    if last_error is not None:
-        logger.warning(f"获取指数历史行情失败 [{source_name}]，共尝试{attempts_made}次")
     return None
 
 
@@ -675,7 +674,7 @@ def _get_dividend_yield(code: str) -> Optional[Dict]:
         return None
 
 # 辅助函数：从中证指数和东方财富获取指数历史行情数据（带重试和备用数据源）
-def _fetch_index_history_data(
+def fetch_index_history_data(
     code: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -819,7 +818,7 @@ def get_index_query(
 
         if df_hist is None or df_hist.empty:
             logger.info(f"正在获取指数 {code} 的历史行情...")
-            df_hist = _fetch_index_history_data(
+            df_hist = fetch_index_history_data(
                 code,
                 start_date=query_start_date,
                 end_date=query_end_date,
@@ -895,7 +894,7 @@ def get_index_valuation(
 
         if df_hist is None or df_hist.empty:
             logger.info(f"正在获取指数 {code} 的历史行情...")
-            df_hist = _fetch_index_history_data(code)
+            df_hist = fetch_index_history_data(code)
 
         if df_hist is None or df_hist.empty:
             return {
@@ -974,7 +973,7 @@ def get_index_details(code: str) -> Dict:
                 "message": f"未找到指数 {code}",
             }
 
-        df_hist = _fetch_index_history_data(code)
+        df_hist = fetch_index_history_data(code)
         if df_hist is None or df_hist.empty:
             return {
                 "status": "error",
@@ -1269,7 +1268,7 @@ def get_index_risk(code: str, df_hist: Optional[pd.DataFrame] = None) -> Dict:
         # 1. 获取历史行情数据（复用已有数据或重新获取）
         if df_hist is None or df_hist.empty:
             logger.info(f"正在获取指数 {code} 的历史行情...")
-            df_hist = _fetch_index_history_data(code)
+            df_hist = fetch_index_history_data(code)
 
         if df_hist is None or df_hist.empty:
             return {
