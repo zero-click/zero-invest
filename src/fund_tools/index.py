@@ -262,16 +262,27 @@ def _filter_history_window(
     return filtered.sort_values("日期").reset_index(drop=True)
 
 
-def _get_index_query_window(end_date: Optional[str] = None) -> tuple[str, str]:
+def get_index_query_window(end_date: Optional[str] = None) -> tuple[str, str]:
     """
     获取指数 query 场景的历史窗口。
 
     query 目前只展示到 3 年收益率，因此抓取 4 个自然年作为缓冲，
     既能覆盖 3 年收益率，也能覆盖年初至今收益率。
+
+    Args:
+        end_date: 结束日期，格式 YYYYMMDD，默认为当前日期
+
+    Returns:
+        (start_date, end_date) 元组，格式为 YYYYMMDD
     """
     end_dt = pd.to_datetime(end_date, format="%Y%m%d") if end_date else datetime.now()
     start_dt = end_dt - timedelta(days=365 * 4)
     return start_dt.strftime("%Y%m%d"), end_dt.strftime("%Y%m%d")
+
+
+def _get_index_query_window(end_date: Optional[str] = None) -> tuple[str, str]:
+    """内部兼容函数"""
+    return get_index_query_window(end_date)
 
 
 def get_csrc_industry_pe_snapshot(lookback_days: int = 30) -> List[Dict[str, Any]]:
@@ -1024,7 +1035,17 @@ def get_index_query(
         latest = df_hist.iloc[-1]
         current_price = float(latest["收盘"])
 
-        result["日期"] = str(latest["日期"].date())
+        latest_date = pd.to_datetime(latest["日期"])
+        result["日期"] = str(latest_date.date())
+
+        # 检查数据新鲜度：如果最新数据超过 1 年，认为数据不可用
+        days_old = (datetime.now() - latest_date).days
+        if days_old > 365:
+            return {
+                "status": "error",
+                "message": f"指数 {code} 的数据太旧（最新数据来自 {days_old} 天前的 {latest_date.date()}），无法查询",
+            }
+
         result["收盘点位"] = round(current_price, 2)
         result["涨跌幅"] = round(float(latest["涨跌幅"]), 2)
 
