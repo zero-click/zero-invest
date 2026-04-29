@@ -70,7 +70,19 @@ BROAD_INDEX_MAP = {
     "399330": ("深证100", "宽基"),
 }
 
-VALUATION_ORDER = {"低": 1, "中": 2, "高": 3, "极高": 4, "未知": 5}
+# 估值温度等级（与 index.py 的 VALUATION_LEVELS 对应）
+# 用于热力图排序，数字越小表示估值越低
+VALUATION_ORDER = {
+    "极度低估 🥶": 1,
+    "低估 🟢": 2,
+    "偏低 🟡": 3,
+    "合理 🟠": 4,
+    "偏高 🔴": 5,
+    "高估 🔥": 6,
+    "极度高估 🚨": 7,
+    "未知": 99,
+    "N/A": 99,
+}
 
 
 def _valuation_bucket(pe_value: Any) -> str:
@@ -120,23 +132,32 @@ def _build_csrc_rows() -> List[Dict[str, Any]]:
 
 def _build_broad_index_rows() -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    from .index import get_index_valuation
+
     for code, (expected_name, category) in BROAD_INDEX_MAP.items():
-        details = get_index_details(code)
+        # 使用 get_index_valuation 获取估值数据（比 get_index_details 更轻量）
+        details = get_index_valuation(code)
         if details.get("status") == "error":
             continue
 
         pe_value = details.get("PE_TTM")
+        # 使用与 query -d 相同的估值方法：优先使用历史分位计算的估值等级
+        valuation_level = details.get("估值等级")
+        if valuation_level in (None, "N/A"):
+            # 如果乐咕乐股数据不可用，标记为未知而不是用错误的简单判断
+            valuation_level = "未知"
+
         rows.append(
             {
                 "代码": code,
                 "名称": details.get("名称", expected_name),
                 "分类": category,
-                "日期": details.get("日期"),
-                "收盘点位": details.get("收盘点位"),
+                "日期": None,  # get_index_valuation 不返回日期字段
+                "收盘点位": None,  # get_index_valuation 不返回收盘点位
                 "PE": pe_value,
                 "PB": details.get("PB"),
                 "股息率": details.get("股息率1") or details.get("股息率2"),
-                "估值温度": details.get("估值等级") if details.get("估值等级") not in (None, "N/A") else _valuation_bucket(pe_value),
+                "估值温度": valuation_level,
                 "数据源": details.get("估值数据源", "未知"),
             }
         )
@@ -188,11 +209,14 @@ def get_valuation_heatmap(category: str = "全部", sort_by: str = "pe") -> Dict
         rows.sort(key=lambda x: x.get("PE") if x.get("PE") is not None else float("inf"))
 
     summary = {
-        "低": sum(1 for item in rows if item.get("估值温度") == "低"),
-        "中": sum(1 for item in rows if item.get("估值温度") == "中"),
-        "高": sum(1 for item in rows if item.get("估值温度") == "高"),
-        "极高": sum(1 for item in rows if item.get("估值温度") == "极高"),
-        "未知": sum(1 for item in rows if item.get("估值温度") == "未知"),
+        "极度低估": sum(1 for item in rows if item.get("估值温度") == "极度低估 🥶"),
+        "低估": sum(1 for item in rows if item.get("估值温度") == "低估 🟢"),
+        "偏低": sum(1 for item in rows if item.get("估值温度") == "偏低 🟡"),
+        "合理": sum(1 for item in rows if item.get("估值温度") == "合理 🟠"),
+        "偏高": sum(1 for item in rows if item.get("估值温度") == "偏高 🔴"),
+        "高估": sum(1 for item in rows if item.get("估值温度") == "高估 🔥"),
+        "极度高估": sum(1 for item in rows if item.get("估值温度") == "极度高估 🚨"),
+        "未知": sum(1 for item in rows if item.get("估值温度") in ("未知", "N/A")),
     }
 
     return {
@@ -234,8 +258,15 @@ def format_heatmap_table(heatmap: Dict[str, Any], limit: int = 30) -> str:
         )
 
     lines.append("-" * 92)
+    # 简化摘要：合并相近的估值等级
+    summary = heatmap["summary"]
+    low_valuation = summary.get("极度低估", 0) + summary.get("低估", 0)
+    medium_valuation = summary.get("偏低", 0) + summary.get("合理", 0)
+    high_valuation = summary.get("偏高", 0) + summary.get("高估", 0) + summary.get("极度高估", 0)
+    unknown_valuation = summary.get("未知", 0)
+
     lines.append(
-        f"共 {heatmap['total']} 条 | 低 {heatmap['summary']['低']} | 中 {heatmap['summary']['中']} "
-        f"| 高 {heatmap['summary']['高']} | 极高 {heatmap['summary']['极高']} | 未知 {heatmap['summary']['未知']}"
+        f"共 {heatmap['total']} 条 | 低估 {low_valuation} | 合理 {medium_valuation} "
+        f"| 高估 {high_valuation} | 未知 {unknown_valuation}"
     )
     return "\n".join(lines)

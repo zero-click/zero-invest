@@ -14,6 +14,7 @@
 """
 
 import os
+import time
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
@@ -23,10 +24,6 @@ import pandas as pd
 import numpy as np
 
 logger = logging.getLogger(__name__)
-
-# Remove proxy for Chinese sites
-for k in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"]:
-    os.environ.pop(k, None)
 
 # 估值温度等级
 VALUATION_LEVELS = {
@@ -54,6 +51,228 @@ LG_INDEX_MAP = {
     "深证100": "深证100",
     "上证红利": "上证红利",
 }
+
+LG_INDEX_CODE_MAP = {
+    "000016": "上证50",
+    "000300": "沪深300",
+    "000905": "中证500",
+    "000906": "中证800",
+    "000903": "中证100",
+    "000852": "中证1000",
+    "000010": "上证180",
+    "000009": "上证380",
+    "399673": "创业板50",
+    "399330": "深证100",
+    "000015": "上证红利",
+    "000922": "中证红利",
+}
+
+
+def _clear_proxy_env() -> None:
+    """移除代理环境变量，避免访问国内数据源时被本地代理干扰。"""
+    for key in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"]:
+        os.environ.pop(key, None)
+
+# 全局函数： 搜索指数
+def search_indices_all(keyword: str) -> List[Dict]:
+    """
+    搜索指数（按名称或代码）
+
+    Args:
+        keyword: 搜索关键词
+
+    Returns:
+        匹配的指数列表
+    """
+    all_indices = get_all_stock_indices()
+
+    results = []
+    for idx in all_indices:
+        if (keyword in idx["name"]) or (keyword in idx["code"]):
+            results.append(idx)
+    return results
+
+
+def _is_non_retryable_history_error(exc: Exception) -> bool:
+    """判断指数历史行情错误是否属于不值得重试的确定性失败。"""
+    message = str(exc)
+    markers = [
+        "Length mismatch",
+        "Expected axis has 0 elements",
+        "Columns must be same length as key",
+        "DataFrame is empty",
+        "empty data",
+    ]
+    return any(marker in message for marker in markers)
+
+
+def _fetch_history_with_retry(fetcher, source_name: str, retries: int = 2) -> Optional[pd.DataFrame]:
+    """带重试地获取指数历史行情。"""
+    last_error = None
+    attempts_made = 0
+    for attempt in range(1, retries + 1):
+        attempts_made = attempt
+        try:
+            _clear_proxy_env()
+            df = fetcher()
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            last_error = e
+            logger.warning(f"获取指数历史行情失败 [{source_name}] 第{attempt}/{retries}次: {e}")
+            if _is_non_retryable_history_error(e):
+                logger.warning(f"获取指数历史行情失败 [{source_name}]，判定为不可重试，直接切换数据源")
+                break
+        time.sleep(0.2)
+
+    if last_error is not None:
+        logger.warning(f"获取指数历史行情失败 [{source_name}]，共尝试{attempts_made}次")
+    return None
+
+
+def _get_history_symbol_candidates(code: str) -> List[str]:
+    """为不同历史行情源构造候选 symbol。"""
+    code = str(code).strip()
+    if not code:
+        return []
+
+    if code.startswith("399"):
+        prefixes = ["sz", "sh", "csi"]
+    elif code.startswith(("930", "931", "932")):
+        prefixes = ["csi", "sh", "sz"]
+    else:
+        prefixes = ["sh", "sz", "csi"]
+
+    return [f"{prefix}{code}" for prefix in prefixes]
+
+
+def _normalize_history_frame(df: pd.DataFrame, source_name: str) -> Optional[pd.DataFrame]:
+    """将不同来源的历史行情统一为当前项目使用的列结构。"""
+    if df is None or df.empty:
+        return None
+
+    normalized = df.copy()
+
+    if "date" in normalized.columns:
+        rename_map = {
+            "date": "日期",
+            "open": "开盘",
+            "close": "收盘",
+            "high": "最高",
+            "low": "最低",
+            "volume": "成交量",
+            "amount": "成交额",
+        }
+        normalized = normalized.rename(columns=rename_map)
+
+    required_columns = {"日期", "收盘"}
+    if not required_columns.issubset(normalized.columns):
+        logger.warning(f"历史行情标准化失败 [{source_name}]：缺少必要列 {required_columns - set(normalized.columns)}")
+        return None
+
+    normalized["日期"] = pd.to_datetime(normalized["日期"], errors="coerce")
+
+    for col in ["开盘", "收盘", "最高", "最低", "成交量", "成交额", "涨跌幅", "涨跌", "换手率", "滚动市盈率"]:
+        if col in normalized.columns:
+            normalized[col] = pd.to_numeric(normalized[col], errors="coerce")
+
+    if "涨跌幅" not in normalized.columns:
+        if "开盘" in normalized.columns:
+            normalized["涨跌幅"] = ((normalized["收盘"] - normalized["开盘"]) / normalized["开盘"]) * 100
+        else:
+            normalized["涨跌幅"] = normalized["收盘"].pct_change() * 100
+
+    normalized = normalized.dropna(subset=["日期", "收盘"]).sort_values("日期").reset_index(drop=True)
+    if normalized.empty:
+        return None
+    return normalized
+
+
+def get_index_returns(
+    df_hist: pd.DataFrame,
+    current_price: Optional[float] = None,
+) -> Dict[str, Optional[float]]:
+    """
+    根据历史行情计算常用区间收益率。
+
+    Args:
+        df_hist: 标准化后的指数历史行情
+        current_price: 可选当前价格；未传时使用最后一个收盘价
+
+    Returns:
+        各时间段收益率字典
+    """
+    if df_hist is None or df_hist.empty:
+        return {}
+
+    if current_price is None:
+        current_price = float(df_hist.iloc[-1]["收盘"])
+
+    returns = {}
+    periods = {
+        "1周": 5,
+        "1月": 21,
+        "3月": 63,
+        "6月": 126,
+        "1年": 252,
+        "3年": 756,
+    }
+
+    for period_name, days in periods.items():
+        if len(df_hist) > days:
+            past_price = float(df_hist.iloc[-days]["收盘"])
+            ret = (current_price - past_price) / past_price * 100
+            returns[f"{period_name}_收益率"] = round(ret, 2)
+        else:
+            returns[f"{period_name}_收益率"] = None
+
+    try:
+        year_start = datetime.now().replace(month=1, day=1)
+        df_year = df_hist[df_hist["日期"] >= year_start]
+        if len(df_year) > 0:
+            year_start_price = float(df_year.iloc[0]["收盘"])
+            ytd_ret = (current_price - year_start_price) / year_start_price * 100
+            returns["今年收益率"] = round(ytd_ret, 2)
+        else:
+            returns["今年收益率"] = None
+    except Exception:
+        returns["今年收益率"] = None
+
+    return returns
+
+
+def _filter_history_window(
+    df_hist: Optional[pd.DataFrame],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Optional[pd.DataFrame]:
+    """按时间窗口裁剪历史行情。"""
+    if df_hist is None or df_hist.empty or "日期" not in df_hist.columns:
+        return df_hist
+
+    filtered = df_hist.copy()
+    filtered["日期"] = pd.to_datetime(filtered["日期"], errors="coerce")
+
+    if start_date:
+        start_ts = pd.to_datetime(start_date, format="%Y%m%d", errors="coerce")
+        filtered = filtered[filtered["日期"] >= start_ts]
+    if end_date:
+        end_ts = pd.to_datetime(end_date, format="%Y%m%d", errors="coerce")
+        filtered = filtered[filtered["日期"] <= end_ts]
+
+    return filtered.sort_values("日期").reset_index(drop=True)
+
+
+def _get_index_query_window(end_date: Optional[str] = None) -> tuple[str, str]:
+    """
+    获取指数 query 场景的历史窗口。
+
+    query 目前只展示到 3 年收益率，因此抓取 4 个自然年作为缓冲，
+    既能覆盖 3 年收益率，也能覆盖年初至今收益率。
+    """
+    end_dt = pd.to_datetime(end_date, format="%Y%m%d") if end_date else datetime.now()
+    start_dt = end_dt - timedelta(days=365 * 4)
+    return start_dt.strftime("%Y%m%d"), end_dt.strftime("%Y%m%d")
 
 
 def get_csrc_industry_pe_snapshot(lookback_days: int = 30) -> List[Dict[str, Any]]:
@@ -202,24 +421,6 @@ def fetch_indices_from_csindex() -> Dict[str, List[Dict]]:
     return all_indices
 
 
-def search_indices(indices: List[Dict], keyword: str) -> List[Dict]:
-    """
-    在指数列表中搜索
-
-    Args:
-        indices: 指数列表
-        keyword: 搜索关键词（代码或名称）
-
-    Returns:
-        匹配的指数列表
-    """
-    results = []
-    for idx in indices:
-        if (keyword in idx["name"]) or (keyword in idx["code"]):
-            results.append(idx)
-    return results
-
-
 def get_index_info(indices: List[Dict], code: str) -> Dict:
     """
     根据代码获取指数详情
@@ -235,11 +436,6 @@ def get_index_info(indices: List[Dict], code: str) -> Dict:
         if idx["code"] == code:
             return idx
     return None
-
-
-# ============================================================
-# 指数详情查询
-# ============================================================
 
 def _get_valuation_level(percentile: float) -> str:
     """根据百分位返回估值等级描述"""
@@ -275,53 +471,67 @@ def _calc_valuation_reference(series: pd.Series, value: float) -> Dict[str, Opti
     }
 
 
-def _calc_returns(df: pd.DataFrame, current_price: float) -> Dict[str, Optional[float]]:
-    """
-    计算各个时间段的收益率
-
-    Args:
-        df: 历史行情数据
-        current_price: 当前价格
-
-    Returns:
-        各时间段收益率字典
-    """
-    if df is None or df.empty:
+# 辅助函数： 基于历史数据计算PE分位值
+def _build_csindex_pe_valuation(df_hist: pd.DataFrame, latest_pe: float, years: int = 10) -> Dict:
+    """基于中证历史行情里的滚动市盈率计算 PE 历史分位。"""
+    if df_hist is None or df_hist.empty or "滚动市盈率" not in df_hist.columns or "日期" not in df_hist.columns:
         return {}
 
-    returns = {}
-    periods = {
-        "1周": 5,
-        "1月": 21,
-        "3月": 63,
-        "6月": 126,
-        "1年": 252,
-        "3年": 756,
+    pe_series = pd.to_numeric(df_hist["滚动市盈率"], errors="coerce")
+    hist = pd.DataFrame({
+        "日期": pd.to_datetime(df_hist["日期"], errors="coerce"),
+        "滚动市盈率": pe_series,
+    }).dropna()
+
+    if hist.empty:
+        return {}
+
+    cutoff_main = datetime.now() - timedelta(days=years * 365)
+    cutoff_5y = datetime.now() - timedelta(days=5 * 365)
+    cutoff_3y = datetime.now() - timedelta(days=3 * 365)
+
+    hist_main = hist[hist["日期"] >= cutoff_main]
+    hist_5y = hist[hist["日期"] >= cutoff_5y]
+    hist_3y = hist[hist["日期"] >= cutoff_3y]
+
+    if hist_main.empty:
+        return {}
+
+    pe_main = _calc_percentile(hist_main["滚动市盈率"], latest_pe)
+    pe_5y = _calc_percentile(hist_5y["滚动市盈率"], latest_pe) if not hist_5y.empty else -1.0
+    pe_3y = _calc_percentile(hist_3y["滚动市盈率"], latest_pe) if not hist_3y.empty else -1.0
+    pe_level = _get_valuation_level(pe_main)
+
+    result = {
+        "PE_TTM": round(float(latest_pe), 2),
+        "PE分位_10年": pe_main,
+        "PE分位_5年": pe_5y,
+        "PE分位_3年": pe_3y,
+        "PE参考_10年": _calc_valuation_reference(hist_main["滚动市盈率"], latest_pe),
+        "PE估值等级": pe_level,
+        "估值等级_PE": pe_level,
+        "估值等级": pe_level,
+        "估值规则": (
+            f"PE 按近{years}年历史分位划分："
+            "<10% 极度低估，10%-20% 低估，20%-40% 偏低，40%-60% 合理，"
+            "60%-80% 偏高，80%-90% 高估，>=90% 极度高估。"
+        ),
+        "估值口径": {
+            "PE_TTM": "中证指数历史行情接口返回的滚动市盈率",
+            "历史分位": f"当前 PE 在近{years}年、近5年、近3年历史样本中的分位，数值越高表示估值越贵",
+            "PE估值等级": "根据 PE 分位单独判断；当前数据源未提供 PB 历史样本",
+            "历史参考": f"近{years}年 PE 样本的当前值、中位数、最低值、最高值",
+        },
+        "数据点数_10年": len(hist_main),
     }
+    return result
 
-    for period_name, days in periods.items():
-        if len(df) > days:
-            past_price = df.iloc[-days]["收盘"]
-            ret = (current_price - past_price) / past_price * 100
-            returns[f"{period_name}_收益率"] = round(ret, 2)
-        else:
-            returns[f"{period_name}_收益率"] = None
+def _calc_returns(df: pd.DataFrame, current_price: float) -> Dict[str, Optional[float]]:
+    """向后兼容包装器，内部复用公共收益率计算函数。"""
+    return get_index_returns(df, current_price=current_price)
 
-    # 年初至今收益率
-    try:
-        year_start = datetime.now().replace(month=1, day=1)
-        df_year = df[df["日期"] >= year_start]
-        if len(df_year) > 0:
-            year_start_price = df_year.iloc[0]["收盘"]
-            ytd_ret = (current_price - year_start_price) / year_start_price * 100
-            returns["今年收益率"] = round(ytd_ret, 2)
-    except:
-        returns["今年收益率"] = None
-
-    return returns
-
-
-def _get_lg_valuation(index_name: str) -> Dict:
+# 辅助函数：从乐咕获取pe/pb 分位值
+def _get_lg_valuation(index_name: str, code: Optional[str] = None) -> Dict:
     """
     从乐咕乐股获取PE/PB历史分位
 
@@ -331,7 +541,7 @@ def _get_lg_valuation(index_name: str) -> Dict:
     Returns:
         PE/PB分位数据
     """
-    valuation = _build_lg_valuation(index_name=index_name, years=10)
+    valuation = _build_lg_valuation(index_name=index_name, code=code, years=10)
     if not valuation:
         return {}
     return {
@@ -345,22 +555,28 @@ def _get_lg_valuation(index_name: str) -> Dict:
         "PB分位_3年": valuation.get("PB分位_3年"),
         "PE参考_10年": valuation.get("PE参考_10年"),
         "PB参考_10年": valuation.get("PB参考_10年"),
+        "PE估值等级": valuation.get("PE估值等级"),
+        "PB估值等级": valuation.get("PB估值等级"),
+        "估值等级_PE": valuation.get("估值等级_PE"),
+        "估值等级_PB": valuation.get("估值等级_PB"),
         "估值等级": valuation.get("估值等级"),
         "估值规则": valuation.get("估值规则"),
         "估值口径": valuation.get("估值口径"),
         "数据点数_10年": valuation.get("数据点数"),
     }
 
-
-def _build_lg_valuation(index_name: str, years: int = 10) -> Dict:
+# 辅助函数：从乐咕获得估值结果？？ why？
+def _build_lg_valuation(index_name: str, code: Optional[str] = None, years: int = 10) -> Dict:
     """
     构造乐咕乐股估值结果（内部使用）
     """
-    if index_name not in LG_INDEX_MAP or years <= 0:
+    if years <= 0:
         return {}
 
     try:
-        symbol = LG_INDEX_MAP[index_name]
+        symbol = LG_INDEX_CODE_MAP.get(str(code)) or LG_INDEX_MAP.get(index_name)
+        if not symbol:
+            return {}
         df_pe = ak.stock_index_pe_lg(symbol=symbol)
         df_pb = ak.stock_index_pb_lg(symbol=symbol)
         df_pe["日期"] = pd.to_datetime(df_pe["日期"])
@@ -382,6 +598,9 @@ def _build_lg_valuation(index_name: str, years: int = 10) -> Dict:
         pb_5y = _calc_percentile(df_pb[df_pb["日期"] >= cutoff_5y]["市净率"], latest_pb)
         pb_3y = _calc_percentile(df_pb[df_pb["日期"] >= cutoff_3y]["市净率"], latest_pb)
 
+        pe_level = _get_valuation_level(pe_main)
+        pb_level = _get_valuation_level(pb_main)
+
         result = {
             "PE_TTM": round(latest_pe, 2),
             "PB": round(latest_pb, 2),
@@ -389,12 +608,24 @@ def _build_lg_valuation(index_name: str, years: int = 10) -> Dict:
             "PE分位_3年": pe_3y,
             "PB分位_5年": pb_5y,
             "PB分位_3年": pb_3y,
-            "估值等级": _get_valuation_level(pe_main),
-            "估值规则": f"按 PE-TTM {years}年历史分位划分：<10% 极度低估，10%-20% 低估，20%-40% 偏低，40%-60% 合理，60%-80% 偏高，80%-90% 高估，>=90% 极度高估。",
+            "PE估值等级": pe_level,
+            "PB估值等级": pb_level,
+            "估值等级_PE": pe_level,
+            "估值等级_PB": pb_level,
+            # 向后兼容：保留单字段，但明确以 PE 口径为主，避免继续使用 PE/PB 平均值。
+            "估值等级": pe_level,
+            "估值规则": (
+                f"PE 与 PB 分别按各自 {years}年历史分位划分："
+                "<10% 极度低估，10%-20% 低估，20%-40% 偏低，40%-60% 合理，"
+                "60%-80% 偏高，80%-90% 高估，>=90% 极度高估。"
+            ),
             "估值口径": {
                 "PE_TTM": "乐咕乐股 stock_index_pe_lg 的滚动市盈率",
                 "PB": "乐咕乐股 stock_index_pb_lg 的市净率",
                 "历史分位": f"当前值在近{years}年、近5年、近3年历史样本中的分位，数值越高表示估值越贵",
+                "PE估值等级": "根据 PE 分位单独判断，不与 PB 混合",
+                "PB估值等级": "根据 PB 分位单独判断，不与 PE 混合",
+                "兼容字段估值等级": "为兼容旧调用方暂保留，当前等同于 PE估值等级",
                 "历史参考": f"近{years}年样本的当前值、中位数、最低值、最高值",
             },
             "数据点数": len(df_pe_hist),
@@ -414,7 +645,7 @@ def _build_lg_valuation(index_name: str, years: int = 10) -> Dict:
         logger.warning(f"从乐咕乐股获取估值数据失败 ({index_name}): {e}")
         return {}
 
-
+# 辅助函数：获得指数股息率
 def _get_dividend_yield(code: str) -> Optional[Dict]:
     """
     从中证指数获取股息率数据
@@ -443,50 +674,95 @@ def _get_dividend_yield(code: str) -> Optional[Dict]:
         logger.warning(f"获取指数 {code} 股息率失败: {e}")
         return None
 
-
-def _fetch_index_history_data(code: str) -> Optional[pd.DataFrame]:
+# 辅助函数：从中证指数和东方财富获取指数历史行情数据（带重试和备用数据源）
+def _fetch_index_history_data(
+    code: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> Optional[pd.DataFrame]:
     """
     获取指数历史行情数据（内部辅助函数）
 
     Args:
         code: 指数代码（6位）
+        start_date: 开始日期，格式 YYYYMMDD
+        end_date: 结束日期，格式 YYYYMMDD
 
     Returns:
         历史行情 DataFrame，包含日期、收盘价等字段
         失败返回 None
     """
-    try:
-        end_date = datetime.now().strftime("%Y%m%d")
-        df_hist = ak.stock_zh_index_hist_csindex(symbol=code, end_date=end_date)
+    end_date = end_date or datetime.now().strftime("%Y%m%d")
+    symbol_candidates = _get_history_symbol_candidates(code)
 
-        if df_hist is None or df_hist.empty:
-            raise ValueError("csindex history empty")
+    source_fetchers = []
 
-        df_hist["日期"] = pd.to_datetime(df_hist["日期"])
-        return df_hist
-
-    except Exception as e:
-        logger.debug(f"获取指数 {code} 中证历史行情失败: {e}")
-
-    # 备用：东方财富中国股票指数
-    try:
-        end_date = datetime.now().strftime("%Y%m%d")
-        df_hist = ak.index_zh_a_hist(
-            symbol=code,
-            period="daily",
-            start_date="19900101",
-            end_date=end_date,
+    for symbol in symbol_candidates:
+        source_fetchers.append(
+            (
+                f"sina_daily:{symbol}",
+                lambda symbol=symbol: ak.stock_zh_index_daily(symbol=symbol),
+                1,
+            )
         )
-        if df_hist is None or df_hist.empty:
-            return None
 
-        df_hist["日期"] = pd.to_datetime(df_hist["日期"], errors="coerce")
-        return df_hist
-    except Exception as e:
-        logger.warning(f"获取指数 {code} 东财历史行情失败: {e}")
-        return None
+    for symbol in symbol_candidates:
+        source_fetchers.append(
+            (
+                f"tx_daily:{symbol}",
+                lambda symbol=symbol: ak.stock_zh_index_daily_tx(symbol=symbol),
+                1,
+            )
+        )
 
+    for symbol in symbol_candidates:
+        source_fetchers.append(
+            (
+                f"eastmoney_daily:{symbol}",
+                lambda symbol=symbol: ak.stock_zh_index_daily_em(
+                    symbol=symbol,
+                    start_date=start_date or "19900101",
+                    end_date=end_date,
+                ),
+                2,
+            )
+        )
 
+    source_fetchers.append(
+        (
+            "csindex",
+            lambda: ak.stock_zh_index_hist_csindex(
+                symbol=code,
+                start_date=start_date or "20180526",
+                end_date=end_date,
+            ),
+            2,
+        )
+    )
+    source_fetchers.append(
+        (
+            "eastmoney_hist",
+            lambda: ak.index_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date or "19900101",
+                end_date=end_date,
+            ),
+            3,
+        )
+    )
+
+    for source_name, fetcher, retries in source_fetchers:
+        df_hist = _fetch_history_with_retry(fetcher, source_name=source_name, retries=retries)
+        normalized = _normalize_history_frame(df_hist, source_name=source_name)
+        if normalized is not None and not normalized.empty:
+            filtered = _filter_history_window(normalized, start_date=start_date, end_date=end_date)
+            if filtered is not None and not filtered.empty:
+                return filtered
+
+    return None
+
+# 辅助函数：获取指数上下文信息 why?
 def _get_index_context(code: str) -> Dict:
     """
     获取指数上下文信息
@@ -502,7 +778,7 @@ def _get_index_context(code: str) -> Dict:
     all_indices = get_all_stock_indices()
     return get_index_info(all_indices, code)
 
-
+# 指数函数：查询指数基本信息
 def get_index_query(
     code: str,
     df_hist: Optional[pd.DataFrame] = None,
@@ -539,9 +815,21 @@ def get_index_query(
         result["指数类别"] = index_info.get("index_class", "")
         result["发布日期"] = index_info.get("publish_date", "")
 
+        query_start_date, query_end_date = _get_index_query_window()
+
         if df_hist is None or df_hist.empty:
             logger.info(f"正在获取指数 {code} 的历史行情...")
-            df_hist = _fetch_index_history_data(code)
+            df_hist = _fetch_index_history_data(
+                code,
+                start_date=query_start_date,
+                end_date=query_end_date,
+            )
+        else:
+            df_hist = _filter_history_window(
+                df_hist,
+                start_date=query_start_date,
+                end_date=query_end_date,
+            )
 
         if df_hist is None or df_hist.empty:
             return {
@@ -557,7 +845,7 @@ def get_index_query(
         result["涨跌幅"] = round(float(latest["涨跌幅"]), 2)
 
         logger.info(f"正在计算指数 {code} 的收益率...")
-        returns = _calc_returns(df_hist, current_price)
+        returns = get_index_returns(df_hist, current_price=current_price)
         result.update(returns)
 
         result["数据点数"] = len(df_hist)
@@ -617,20 +905,29 @@ def get_index_valuation(
 
         latest = df_hist.iloc[-1]
 
-        lg_valuation = _get_lg_valuation(index_info["name"])
+        lg_valuation = _get_lg_valuation(index_info["name"], code=code)
         if lg_valuation:
             result.update(lg_valuation)
             result["估值数据源"] = "乐咕乐股"
         else:
             pe_ttm = latest.get("滚动市盈率")
             if pd.notna(pe_ttm):
-                result["PE_TTM"] = round(float(pe_ttm), 2)
+                csindex_pe_valuation = _build_csindex_pe_valuation(df_hist, float(pe_ttm))
+                if csindex_pe_valuation:
+                    result.update(csindex_pe_valuation)
+                else:
+                    result["PE_TTM"] = round(float(pe_ttm), 2)
             result["估值数据源"] = "中证指数"
-            result["估值等级"] = "N/A"
-            result["估值口径"] = {
-                "PE_TTM": "中证指数历史行情接口返回的滚动市盈率",
-                "历史分位": "当前数据源未提供足够历史估值样本，暂不计算",
-            }
+            result["PB估值等级"] = "N/A"
+            result["估值等级_PB"] = "N/A"
+            if "PE估值等级" not in result:
+                result["PE估值等级"] = "N/A"
+                result["估值等级_PE"] = "N/A"
+                result["估值等级"] = "N/A"
+                result["估值口径"] = {
+                    "PE_TTM": "中证指数历史行情接口返回的滚动市盈率",
+                    "历史分位": "当前数据源未提供足够历史估值样本，暂不计算",
+                }
 
         logger.info(f"正在获取指数 {code} 的股息率...")
         dividend_yield = _get_dividend_yield(code)
@@ -993,7 +1290,7 @@ def get_index_risk(code: str, df_hist: Optional[pd.DataFrame] = None) -> Dict:
 
         # 3. 计算各时间段收益率
         logger.info(f"正在计算指数 {code} 的收益率...")
-        returns = _calc_returns(df_hist, current_price)
+        returns = get_index_returns(df_hist, current_price=current_price)
         result.update({
             "近1月收益率": returns.get("1月_收益率"),
             "近3月收益率": returns.get("3月_收益率"),
@@ -1091,20 +1388,6 @@ def get_all_stock_indices() -> List[Dict]:
     for cat in ["broad", "industry", "sector", "strategy", "style", "other"]:
         all_indices.extend(data.get(cat, []))
     return all_indices
-
-
-def search_indices_all(keyword: str) -> List[Dict]:
-    """
-    搜索指数（按名称或代码）
-
-    Args:
-        keyword: 搜索关键词
-
-    Returns:
-        匹配的指数列表
-    """
-    all_indices = get_all_stock_indices()
-    return search_indices(all_indices, keyword)
 
 
 def get_index_info_by_code(code: str) -> Dict:
