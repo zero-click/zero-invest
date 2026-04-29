@@ -608,10 +608,10 @@ def fetch_index_valuation_with_fallback(
     """
     获取指数估值数据（多数据源 fallback 机制）
 
-    数据源优先级：
-      1. 乐咕乐股（stock_index_pe_lg, stock_index_pb_lg）- 仅宽基指数，提供完整PE/PB分位
-      2. 中证指数历史行情（stock_zh_index_hist_csindex）- 提供滚动市盈率，可计算分位
-      3. 证监会行业PE（stock_industry_pe_ratio_cninfo）- 仅静态PE，无历史分位
+    根据指数代码前缀使用不同的数据源优先级：
+      - 93xxxx: 中证行业指数 -> csindex
+      - 000xxx/399xxx: 深交所指数 -> legulegu -> csindex
+      - 其他指数 -> legulegu -> csindex
 
     Args:
         code: 指数代码（6位）
@@ -627,73 +627,53 @@ def fetch_index_valuation_with_fallback(
         "名称": index_name,
     }
 
-    # 尝试数据源1：乐咕乐股（仅宽基指数）
-    lg_valuation = _get_lg_valuation(index_name, code=code)
-    if lg_valuation:
-        result.update(lg_valuation)
-        result["估值数据源"] = "乐咕乐股"
-        logger.debug(f"指数 {code} 估值数据来源: 乐咕乐股")
-        return result
+    # 获取估值数据源优先级
+    valuation_priority = get_valuation_source_priority(code)
 
-    logger.debug(f"指数 {code} 乐咕乐股不支持，尝试中证指数")
+    # 按优先级尝试数据源
+    for source in valuation_priority:
+        if source == "legulegu":
+            # 乐咕乐股（仅宽基指数，提供完整PE/PB分位）
+            lg_valuation = _get_lg_valuation(index_name, code=code)
+            if lg_valuation:
+                result.update(lg_valuation)
+                result["估值数据源"] = "乐咕乐股"
+                logger.debug(f"指数 {code} 估值数据来源: 乐咕乐股")
+                return result
+            else:
+                logger.debug(f"指数 {code} 乐咕乐股不支持或失败")
 
-    # 尝试数据源2：中证指数历史行情
-    try:
-        df_hist = fetch_index_history_data(code)
-        if df_hist is not None and not df_hist.empty and "滚动市盈率" in df_hist.columns:
-            latest = df_hist.iloc[-1]
-            pe_ttm = latest.get("滚动市盈率")
-
-            if pd.notna(pe_ttm):
-                csindex_pe_valuation = _build_csindex_pe_valuation(
-                    df_hist, float(pe_ttm), publish_date=publish_date
-                )
-                if csindex_pe_valuation:
-                    result.update(csindex_pe_valuation)
-                    result["估值数据源"] = "中证指数"
-                    result["PB"] = None  # 中证指数历史行情不提供 PB
-                    result["PB估值等级"] = "N/A"
-                    result["估值等级_PB"] = "N/A"
-                    logger.debug(f"指数 {code} 估值数据来源: 中证指数")
-                    return result
-                else:
-                    result["PE_TTM"] = round(float(pe_ttm), 2)
-                    result["估值数据源"] = "中证指数"
-                    result["PB"] = None
-                    result["PB估值等级"] = "N/A"
-                    result["估值等级_PB"] = "N/A"
-        else:
-            # 中证指数历史行情不包含滚动市盈率
-            logger.debug(f"指数 {code} 中证指数历史行情不包含'滚动市盈率'字段")
-
-        # 如果中证指数也没有数据，尝试数据源3：证监会行业PE
-        logger.debug(f"指数 {code} 中证指数历史行情无PE，尝试证监会行业PE")
-
-    except Exception as e:
-        logger.warning(f"从中证指数获取 {code} 估值数据失败: {e}")
-
-    # 尝试数据源3：证监会行业PE（仅静态PE）
-    try:
-        from datetime import datetime
-        for days_back in range(max(1, 30)):
-            target_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+        elif source == "csindex":
+            # 中证指数历史行情（提供滚动市盈率，可计算分位）
             try:
-                df = ak.stock_industry_pe_ratio_cninfo(
-                    symbol="证监会行业分类",
-                    date=target_date,
-                )
-            except Exception:
-                continue
+                df_hist = fetch_index_history_data(code)
+                if df_hist is not None and not df_hist.empty and "滚动市盈率" in df_hist.columns:
+                    latest = df_hist.iloc[-1]
+                    pe_ttm = latest.get("滚动市盈率")
 
-            if df is None or df.empty:
-                continue
+                    if pd.notna(pe_ttm):
+                        csindex_pe_valuation = _build_csindex_pe_valuation(
+                            df_hist, float(pe_ttm), publish_date=publish_date
+                        )
+                        if csindex_pe_valuation:
+                            result.update(csindex_pe_valuation)
+                            result["估值数据源"] = "中证指数"
+                            result["PB"] = None  # 中证指数历史行情不提供 PB
+                            result["PB估值等级"] = "N/A"
+                            result["估值等级_PB"] = "N/A"
+                            logger.debug(f"指数 {code} 估值数据来源: 中证指数")
+                            return result
+                        else:
+                            result["PE_TTM"] = round(float(pe_ttm), 2)
+                            result["估值数据源"] = "中证指数"
+                            result["PB"] = None
+                            result["PB估值等级"] = "N/A"
+                            result["估值等级_PB"] = "N/A"
+                else:
+                    logger.debug(f"指数 {code} 中证指数历史行情不包含'滚动市盈率'字段")
 
-            # 尝试匹配行业名称（目前暂不实现，因为需要行业映射）
-            logger.debug(f"证监会行业PE暂不支持指数 {code}")
-            break
-
-    except Exception as e:
-        logger.debug(f"从证监会行业获取 {code} 估值数据失败: {e}")
+            except Exception as e:
+                logger.warning(f"从中证指数获取 {code} 估值数据失败: {e}")
 
     # 所有数据源都失败
     result["估值数据源"] = "无"  # 标识数据源
@@ -870,6 +850,54 @@ def _get_dividend_yield(code: str) -> Optional[Dict]:
         return None
 
 # 辅助函数：从中证指数和东方财富获取指数历史行情数据（带重试和备用数据源）
+def get_history_source_priority(index_code: str) -> List[str]:
+    """
+    根据指数代码返回历史数据源优先级列表
+
+    Args:
+        index_code: 指数代码（6位）
+
+    Returns:
+        数据源名称列表，按优先级排序
+    """
+    # 93xxxx: 中证行业指数（如 932136 保险），直接走中证指数
+    if index_code.startswith("93"):
+        return ["csindex"]
+
+    # 000xxx 或 399xxx: 深交所指数
+    # Sina -> 腾讯 -> EastMoney -> 中证指数 -> EastMoney 历史
+    if index_code.startswith("000") or index_code.startswith("399"):
+        return ["sina_daily", "tx_daily", "eastmoney_daily", "csindex", "eastmoney_hist"]
+
+    # 其他指数（如上交所指数）
+    # Sina -> 腾讯 -> EastMoney -> 中证指数 -> EastMoney 历史
+    return ["sina_daily", "tx_daily", "eastmoney_daily", "csindex", "eastmoney_hist"]
+
+
+def get_valuation_source_priority(index_code: str) -> List[str]:
+    """
+    根据指数代码返回估值数据源优先级列表
+
+    Args:
+        index_code: 指数代码（6位）
+
+    Returns:
+        数据源名称列表，按优先级排序
+    """
+    # 93xxxx: 中证行业指数，直接走中证指数历史行情
+    if index_code.startswith("93"):
+        return ["csindex"]
+
+    # 000xxx 或 399xxx: 深交所指数
+    # 乐咕乐股 -> 中证指数 -> 证监会行业
+    if index_code.startswith("000") or index_code.startswith("399"):
+        return ["legulegu", "csindex"]
+
+    # 其他指数（如上交所指数）
+    # 乐咕乐股 -> 中证指数 -> 证监会行业
+    return ["legulegu", "csindex"]
+
+
 def fetch_index_history_data(
     code: str,
     start_date: Optional[str] = None,
@@ -890,63 +918,60 @@ def fetch_index_history_data(
     end_date = end_date or datetime.now().strftime("%Y%m%d")
     symbol_candidates = _get_history_symbol_candidates(code)
 
+    # 获取数据源优先级
+    source_priority = get_history_source_priority(code)
+
+    # 根据优先级构建数据源列表
     source_fetchers = []
-
-    for symbol in symbol_candidates:
-        source_fetchers.append(
-            (
-                f"sina_daily:{symbol}",
-                lambda symbol=symbol: ak.stock_zh_index_daily(symbol=symbol),
-                1,
+    for source_name in source_priority:
+        if source_name == "sina_daily":
+            for symbol in symbol_candidates:
+                source_fetchers.append(
+                    (f"sina_daily:{symbol}",
+                     lambda symbol=symbol: ak.stock_zh_index_daily(symbol=symbol),
+                     1)
+                )
+        elif source_name == "tx_daily":
+            for symbol in symbol_candidates:
+                source_fetchers.append(
+                    (f"tx_daily:{symbol}",
+                     lambda symbol=symbol: ak.stock_zh_index_daily_tx(symbol=symbol),
+                     1)
+                )
+        elif source_name == "eastmoney_daily":
+            for symbol in symbol_candidates:
+                source_fetchers.append(
+                    (f"eastmoney_daily:{symbol}",
+                     lambda symbol=symbol: ak.stock_zh_index_daily_em(
+                         symbol=symbol,
+                         start_date=start_date or "19900101",
+                         end_date=end_date,
+                     ),
+                     2)
+                )
+        elif source_name == "csindex":
+            source_fetchers.append(
+                ("csindex",
+                 lambda: ak.stock_zh_index_hist_csindex(
+                     symbol=code,
+                     start_date=start_date or "20180526",
+                     end_date=end_date,
+                 ),
+                 2)
             )
-        )
-
-    for symbol in symbol_candidates:
-        source_fetchers.append(
-            (
-                f"tx_daily:{symbol}",
-                lambda symbol=symbol: ak.stock_zh_index_daily_tx(symbol=symbol),
-                1,
+        elif source_name == "eastmoney_hist":
+            source_fetchers.append(
+                ("eastmoney_hist",
+                 lambda: ak.index_zh_a_hist(
+                     symbol=code,
+                     period="daily",
+                     start_date=start_date or "19900101",
+                     end_date=end_date,
+                 ),
+                 3)
             )
-        )
 
-    for symbol in symbol_candidates:
-        source_fetchers.append(
-            (
-                f"eastmoney_daily:{symbol}",
-                lambda symbol=symbol: ak.stock_zh_index_daily_em(
-                    symbol=symbol,
-                    start_date=start_date or "19900101",
-                    end_date=end_date,
-                ),
-                2,
-            )
-        )
-
-    source_fetchers.append(
-        (
-            "csindex",
-            lambda: ak.stock_zh_index_hist_csindex(
-                symbol=code,
-                start_date=start_date or "20180526",
-                end_date=end_date,
-            ),
-            2,
-        )
-    )
-    source_fetchers.append(
-        (
-            "eastmoney_hist",
-            lambda: ak.index_zh_a_hist(
-                symbol=code,
-                period="daily",
-                start_date=start_date or "19900101",
-                end_date=end_date,
-            ),
-            3,
-        )
-    )
-
+    # 按优先级尝试数据源
     for source_name, fetcher, retries in source_fetchers:
         df_hist = _fetch_history_with_retry(fetcher, source_name=source_name, retries=retries)
         normalized = _normalize_history_frame(df_hist, source_name=source_name)
