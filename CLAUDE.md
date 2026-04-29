@@ -220,6 +220,7 @@ python fund_mcp_server.py
 2. **避免重复 API 调用**：合并相似功能（如 `get_fund_portfolio_analysis`）
 3. **向后兼容**：重构后保留旧函数作为包装器
 4. **统一返回格式**：所有函数返回 `dict`，包含 `status` 字段（`"success"` 或 `"error"`）
+5. **显式传时间参数**：调用 akshare 的历史行情、估值、快照类函数时，必须检查 `start_date` / `end_date` / `date` 等时间参数，显式传入当前业务需要的时间窗口，不能依赖库函数默认值
 
 ### 返回格式示例
 

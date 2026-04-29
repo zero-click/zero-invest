@@ -4,7 +4,14 @@
 基于 akshare 的基金信息查询工具
 """
 
-from .cache import get_fund_list, get_index_list, update_index_cache, FUND_DB_FILE, INDEX_DB_FILE
+from .cache import (
+    get_fund_list,
+    get_index_list,
+    update_index_cache,
+    update_capital_flow_cache,
+    FUND_DB_FILE,
+    INDEX_DB_FILE,
+)
 from .core import (
     search_funds,
     query_fund_details,
@@ -26,18 +33,34 @@ from .core import (
 from . import index
 from .industry_valuation import (
     get_industry_valuation_matrix,
+    get_csrc_valuation_matrix,
     get_valuation_heatmap,
+    get_csrc_valuation_heatmap,
     format_heatmap_table,
+)
+from .capital_flow_analysis import (
+    get_northbound_holdings,
+    get_southbound_holdings,
+    get_historical_flow,
+    get_fund_flow_summary,
+    get_industry_aggregation,
+    get_top_holdings,
+    get_capital_flow_report,
+    format_industry_report,
+    format_flow_history,
+    get_market_fund_flow,
+    format_market_fund_flow,
 )
 
 # 从 index 模块导入所有指数相关函数
 from .index import (
     # 核心功能
     fetch_indices_from_csindex,
-    search_indices as _search_indices,
+    search_indices_all,
     get_index_info as _get_index_info,
     LG_INDEX_MAP,
     get_index_query,
+    get_index_returns,
     get_index_valuation,
     get_index_details,
     get_index_details_batch,
@@ -54,16 +77,9 @@ from .index import (
 )
 
 
-# 向后兼容的包装器
-def search_indices(keyword: str):
-    """搜索指数（向后兼容接口）"""
-    indices = get_all_stock_indices()
-    return _search_indices(indices, keyword)
-
-
 def search_indices_all(keyword: str):
-    """搜索所有指数（向后兼容接口）"""
-    return search_indices(keyword)
+    """搜索所有指数（包级导出）"""
+    return index.search_indices_all(keyword)
 
 
 def get_index_info(code: str):
@@ -82,6 +98,7 @@ __all__ = [
     "get_fund_list",
     "get_index_list",
     "update_index_cache",
+    "update_capital_flow_cache",
     "FUND_DB_FILE",
     "INDEX_DB_FILE",
     # Core
@@ -112,19 +129,32 @@ __all__ = [
     "get_strategy_indices",
     "get_style_indices",
     "get_all_stock_indices",
-    "search_indices",
     "search_indices_all",
     "get_index_info",
     "get_index_info_by_code",
     "get_index_query",
+    "get_index_returns",
     "get_index_valuation",
     "get_index_details",
     "get_index_details_batch",
     "get_index_risk",
     "get_csrc_industry_pe_snapshot",
     "get_industry_valuation_matrix",
+    "get_csrc_valuation_matrix",
     "get_valuation_heatmap",
+    "get_csrc_valuation_heatmap",
     "format_heatmap_table",
+    "get_northbound_holdings",
+    "get_southbound_holdings",
+    "get_historical_flow",
+    "get_fund_flow_summary",
+    "get_industry_aggregation",
+    "get_top_holdings",
+    "get_capital_flow_report",
+    "format_industry_report",
+    "format_flow_history",
+    "get_market_fund_flow",
+    "format_market_fund_flow",
 ]
 
 __version__ = "2.0.0"

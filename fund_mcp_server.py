@@ -445,7 +445,7 @@ def get_capital_flow_industry(
     logger.info(f"📊 获取{direction}资金行业分布")
 
     try:
-        from capital_flow_analysis import get_industry_aggregation
+        from fund_tools.capital_flow_analysis import get_industry_aggregation
 
         result = get_industry_aggregation(direction)
 
@@ -486,7 +486,7 @@ def get_capital_flow_top_stocks(
     logger.info(f"🏆 获取{direction}资金 Top{top_n} 个股 (按{metric})")
 
     try:
-        from capital_flow_analysis import get_top_holdings
+        from fund_tools.capital_flow_analysis import get_top_holdings
 
         result = get_top_holdings(direction, metric, top_n)
 
@@ -519,7 +519,7 @@ def get_capital_flow_history(
     logger.info(f"📈 获取{symbol}近{days}日资金流")
 
     try:
-        from capital_flow_analysis import get_historical_flow
+        from fund_tools.capital_flow_analysis import get_historical_flow
 
         data = get_historical_flow(symbol, days)
 
@@ -550,7 +550,7 @@ def get_capital_flow_summary() -> dict:
     logger.info("📊 获取当日资金流汇总")
 
     try:
-        from capital_flow_analysis import get_fund_flow_summary
+        from fund_tools.capital_flow_analysis import get_fund_flow_summary
 
         result = get_fund_flow_summary()
 
@@ -580,7 +580,7 @@ def get_capital_flow_full_report() -> dict:
     logger.info("📋 生成完整资金流分析报告")
 
     try:
-        from capital_flow_analysis import get_capital_flow_report
+        from fund_tools.capital_flow_analysis import get_capital_flow_report
 
         report = get_capital_flow_report()
 
@@ -616,7 +616,7 @@ def get_market_fund_flow(days: int = 30) -> dict:
     logger.info(f"📈 获取大盘主力资金流 (最近{days}天)")
 
     try:
-        from capital_flow_analysis import get_market_fund_flow as _get_mff
+        from fund_tools.capital_flow_analysis import get_market_fund_flow as _get_mff
 
         result = _get_mff(days=days)
 
@@ -764,7 +764,7 @@ def get_portfolio_analysis() -> dict:
 # ============================================================
 
 @mcp.tool()
-def search_indices(keyword: str, limit: int = 50) -> dict:
+def search_indices_all(keyword: str, limit: int = 50) -> dict:
     """
     搜索中国A股指数（宽基、行业、主题、策略、风格）
 
@@ -1006,7 +1006,7 @@ if __name__ == "__main__":
     logger.info("  • refresh_fund_cache - 刷新缓存")
     logger.info("")
     logger.info("  === 指数查询工具 ===")
-    logger.info("  • search_indices - 搜索指数")
+    logger.info("  • search_indices_all - 搜索指数")
     logger.info("  • get_index_info - 获取指数基本信息")
     logger.info("  • get_index_details - 获取指数完整详情")
     logger.info("  • get_index_details_batch - 批量获取指数详情")

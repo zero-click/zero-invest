@@ -29,7 +29,7 @@ from fund_tools import (
     get_strategy_indices,
     get_style_indices,
     get_all_stock_indices,
-    search_indices,
+    search_indices_all,
     get_index_info,
     INDEX_DB_FILE,
 )
@@ -284,9 +284,9 @@ class TestIndexConvenience:
 class TestIndexSearch:
     """测试指数搜索和查询（真实数据）"""
 
-    def test_search_indices_by_name(self):
+    def test_search_indices_all_by_name(self):
         """测试按名称搜索指数"""
-        results = search_indices("红利")
+        results = search_indices_all("红利")
 
         assert isinstance(results, list)
         assert len(results) > 10  # 应该有多个红利相关指数
@@ -297,9 +297,9 @@ class TestIndexSearch:
 
         print(f"✅ 搜索'红利'找到 {len(results)} 个指数")
 
-    def test_search_indices_by_code(self):
+    def test_search_indices_all_by_code(self):
         """测试按代码搜索指数"""
-        results = search_indices("0003")
+        results = search_indices_all("0003")
 
         assert isinstance(results, list)
         assert len(results) > 0
