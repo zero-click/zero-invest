@@ -10,10 +10,12 @@
 
 from datetime import datetime
 from typing import Any, Dict, List
-
 from tabulate import tabulate
 
 from .index import VALUATION_LEVELS, get_csrc_industry_pe_snapshot
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 证监会行业映射（用于独立快照报表）
 CSRC_INDUSTRY_MAP = {
@@ -154,7 +156,9 @@ def _build_index_rows(index_map: Dict[str, Any], source_type: str) -> List[Dict[
     import time
 
     for code, (expected_name, category) in index_map.items():
+        logging.debug(f"正在获取 {expected_name} ({code}) 的估值数据...")
         details = get_index_valuation(code)
+        time.sleep(10)
         # 只在获取失败时延迟，避免频繁失败导致限流
         if details.get("估值数据源") == "无" or details.get("PE_TTM") is None:
             time.sleep(0.3)
