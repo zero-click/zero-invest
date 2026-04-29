@@ -1094,6 +1094,7 @@ def get_index_valuation(
     code: str,
     df_hist: Optional[pd.DataFrame] = None,
     index_info: Optional[Dict] = None,
+    include_dividend: bool = True,
 ) -> Dict:
     """
     获取指数估值数据（估值 + 股息率 + 分位 + 口径规则）
@@ -1102,6 +1103,7 @@ def get_index_valuation(
         code: 指数代码（6位）
         df_hist: 可选历史行情（用于复用）
         index_info: 可选指数基础信息（用于复用）
+        include_dividend: 是否获取股息率（默认True，设为False可跳过慢速接口）
 
     Returns:
         估值结果
@@ -1135,16 +1137,19 @@ def get_index_valuation(
 
         result.update(valuation_data)
 
-        # 获取股息率（从中证指数）
-        logger.debug(f"正在获取指数 {code} 的股息率...")
-        dividend_yield = _get_dividend_yield(code)
-        if dividend_yield:
-            result.update(dividend_yield)
-            result.setdefault("估值口径", {})
-            result["估值口径"].update({
-                "股息率1": "中证指数 stock_zh_index_value_csindex 的 D/P1（总股本口径）",
-                "股息率2": "中证指数 stock_zh_index_value_csindex 的 D/P2（计算用股本口径）",
-            })
+        # 获取股息率（从中证指数）- 可选功能，因为接口较慢
+        if include_dividend:
+            logger.debug(f"正在获取指数 {code} 的股息率...")
+            dividend_yield = _get_dividend_yield(code)
+            if dividend_yield:
+                result.update(dividend_yield)
+                result.setdefault("估值口径", {})
+                result["估值口径"].update({
+                    "股息率1": "中证指数 stock_zh_index_value_csindex 的 D/P1（总股本口径）",
+                    "股息率2": "中证指数 stock_zh_index_value_csindex 的 D/P2（计算用股本口径）",
+                })
+        else:
+            logger.debug(f"跳过指数 {code} 的股息率获取（include_dividend=False）")
 
         # 如果有传入历史数据，记录数据点数
         if df_hist is not None and not df_hist.empty:
