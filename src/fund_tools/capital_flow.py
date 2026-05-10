@@ -41,6 +41,7 @@ VALID_INDICATORS = ["今日", "3日", "5日", "10日", "1月", "1季", "1年"]
 TRADE_STATUS_MAP = {1: "盘前", 2: "交易中", 3: "已收盘"}
 
 MAX_HISTORY_DAYS = 365
+MAX_TOP_N = 50
 
 
 # === 辅助函数 ===
@@ -144,7 +145,7 @@ def get_capital_flow_history(direction: str = "北向", days: int = 20) -> dict:
             "message": f"无效方向 '{direction}'，支持: {list(DIRECTION_MAP.keys())}",
         }
 
-    days = min(days, MAX_HISTORY_DAYS)
+    days = max(1, min(days, MAX_HISTORY_DAYS))
 
     try:
         symbol = DIRECTION_MAP[direction]
@@ -264,6 +265,7 @@ def get_northbound_sector_rank(
             }
 
         # 截取 top_n
+        top_n = max(1, min(top_n, MAX_TOP_N))
         df = df.head(top_n).reset_index(drop=True)
 
         # 提取报告时间
