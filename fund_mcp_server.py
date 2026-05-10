@@ -811,6 +811,115 @@ def get_service_overview() -> str:
 通过 MCP 客户端（如 Claude Desktop）连接到本服务，即可使用上述工具查询基金信息。
     """
 
+# === 香港市场工具 ===
+
+@mcp.tool()
+def get_hk_fund_rankings(sort_by: str = "近1年", limit: int = 50) -> dict:
+    """
+    获取香港基金排行榜。
+
+    支持按不同时间维度排序：近1周、近1月、近3月、近6月、近1年、近2年、近3年、今年来、成立来。
+
+    Args:
+        sort_by: 排序字段，默认"近1年"
+        limit: 返回数量，默认50
+
+    Returns:
+        香港基金排行数据，包含基金代码、名称、各阶段收益率等
+    """
+    logger.info(f"🏆 查询香港基金排行: sort_by={sort_by}, limit={limit}")
+    result = fund_tool.get_hk_fund_rankings(sort_by=sort_by, limit=limit)
+    if result.get("status") == "success":
+        logger.info(f"✅ 返回 {result.get('count', 0)} 只香港基金")
+    else:
+        logger.warning(f"❌ 香港基金排行查询失败: {result.get('message')}")
+    return result
+
+
+@mcp.tool()
+def search_hk_funds(keyword: str) -> dict:
+    """
+    搜索香港基金（按基金代码或基金简称）。
+
+    Args:
+        keyword: 搜索关键字
+
+    Returns:
+        匹配的香港基金列表，包含基金代码、名称、各阶段收益率等
+    """
+    logger.info(f"🔍 搜索香港基金: {keyword}")
+    result = fund_tool.search_hk_funds(keyword=keyword)
+    if result.get("status") == "success":
+        logger.info(f"✅ 找到 {result.get('count', 0)} 只香港基金")
+    else:
+        logger.warning(f"❌ 香港基金搜索失败: {result.get('message')}")
+    return result
+
+
+@mcp.tool()
+def get_hk_fund_history(code: str, history_type: str = "历史净值明细") -> dict:
+    """
+    获取香港基金历史净值或分红送配详情。
+
+    Args:
+        code: 基金代码（6位，如 968063）
+        history_type: "历史净值明细" 或 "分红送配详情"
+
+    Returns:
+        基金历史数据列表
+    """
+    logger.info(f"📈 查询香港基金历史: {code} ({history_type})")
+    result = fund_tool.get_hk_fund_history(code=code, history_type=history_type)
+    if result.get("status") == "success":
+        logger.info(f"✅ 返回 {result.get('count', 0)} 条记录")
+    else:
+        logger.warning(f"❌ 香港基金历史查询失败: {result.get('message')}")
+    return result
+
+
+@mcp.tool()
+def get_hk_index_spot() -> dict:
+    """
+    获取港股指数实时行情。
+
+    数据源优先级：新浪财经（主）→ 东方财富（备用），返回港股主要指数的实时行情数据。
+    数据可能有15分钟延迟。
+
+    Returns:
+        港股指数实时行情，包含代码、名称、最新价、涨跌额、涨跌幅、今开、最高、最低等
+    """
+    logger.info("📊 查询港股指数实时行情")
+    result = fund_tool.get_hk_index_spot()
+    if result.get("status") == "success":
+        logger.info(f"✅ 返回 {result.get('count', 0)} 个港股指数 (source={result.get('source')})")
+    else:
+        logger.warning(f"❌ 港股指数行情查询失败: {result.get('message')}")
+    return result
+
+
+@mcp.tool()
+def get_hk_index_daily(symbol: str, days: int = 30) -> dict:
+    """
+    获取港股指数历史行情。
+
+    数据源优先级：新浪财经（主）→ 东方财富（备用）。
+
+    Args:
+        symbol: 指数代码（如 CES100）
+        days: 返回最近多少天的数据（1-365，默认30）
+
+    Returns:
+        港股指数历史行情，包含日期、开盘、最高、最低、收盘、成交量
+    """
+    logger.info(f"📈 查询港股指数历史: {symbol} (最近 {days} 天)")
+    result = fund_tool.get_hk_index_daily(symbol=symbol, days=days)
+    if result.get("status") == "success":
+        logger.info(f"✅ 返回 {result.get('count', 0)} 条记录 (source={result.get('source')})")
+    else:
+        logger.warning(f"❌ 港股指数历史查询失败: {result.get('message')}")
+    return result
+
+
 # === 启动服务器 ===
 
 if __name__ == "__main__":
@@ -850,6 +959,13 @@ if __name__ == "__main__":
     logger.info("  === 沪深港通资金流分析工具 ===")
     logger.info("  • get_capital_flow_summary - 沪深港通今日资金流总览")
     logger.info("  • get_capital_flow_history - 历史资金流趋势分析（默认南向）")
+    logger.info("")
+    logger.info("  === 香港市场工具 ===")
+    logger.info("  • get_hk_fund_rankings - 香港基金排行榜")
+    logger.info("  • search_hk_funds - 搜索香港基金")
+    logger.info("  • get_hk_fund_history - 香港基金历史净值/分红送配")
+    logger.info("  • get_hk_index_spot - 港股指数实时行情")
+    logger.info("  • get_hk_index_daily - 港股指数历史行情")
     logger.info("")
     logger.info("📦 可用资源:")
     logger.info("  • fund://list - 基金列表")

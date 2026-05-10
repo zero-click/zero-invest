@@ -42,6 +42,17 @@ from .capital_flow import (
     get_capital_flow_history,
 )
 
+# 香港市场
+from .hk_fund import (
+    get_hk_fund_rankings,
+    search_hk_funds,
+    get_hk_fund_history,
+)
+from .hk_index import (
+    get_hk_index_spot,
+    get_hk_index_daily,
+)
+
 # 从 index 模块导入所有指数相关函数
 from .index import (
     # 核心功能
@@ -138,6 +149,12 @@ __all__ = [
     # Capital Flow
     "get_capital_flow_summary",
     "get_capital_flow_history",
+    # Hong Kong Market
+    "get_hk_fund_rankings",
+    "search_hk_funds",
+    "get_hk_fund_history",
+    "get_hk_index_spot",
+    "get_hk_index_daily",
 ]
 
 __version__ = "2.0.0"
