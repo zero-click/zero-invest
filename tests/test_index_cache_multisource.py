@@ -162,7 +162,7 @@ class TestIndexCacheMultiSource:
             ),
         )
 
-        df = index._fetch_index_history_data("399673")
+        df = index.fetch_index_history_data("399673")
 
         assert len(df) == 2
         assert str(df.iloc[-1]["日期"].date()) == "2026-04-27"
@@ -193,7 +193,7 @@ class TestIndexCacheMultiSource:
         monkeypatch.setattr(index.ak, "stock_zh_index_hist_csindex", _raise_csindex)
         monkeypatch.setattr(index.ak, "index_zh_a_hist", _eastmoney_retry)
 
-        df = index._fetch_index_history_data("000016")
+        df = index.fetch_index_history_data("000016")
 
         assert calls["count"] == 2
         assert len(df) == 1
@@ -223,7 +223,7 @@ class TestIndexCacheMultiSource:
             ),
         )
 
-        df = index._fetch_index_history_data("399439")
+        df = index.fetch_index_history_data("399439")
 
         assert csindex_calls["count"] == 1
         assert len(df) == 1
@@ -253,7 +253,7 @@ class TestIndexCacheMultiSource:
         monkeypatch.setattr(index.ak, "stock_zh_index_hist_csindex", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not call csindex")))
         monkeypatch.setattr(index.ak, "index_zh_a_hist", lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not call eastmoney hist")))
 
-        df = index._fetch_index_history_data("399439")
+        df = index.fetch_index_history_data("399439")
 
         assert calls == ["sina:sz399439"]
         assert len(df) == 1
@@ -283,7 +283,7 @@ class TestIndexCacheMultiSource:
         monkeypatch.setattr(index.ak, "stock_zh_index_hist_csindex", _capture_csindex)
         monkeypatch.setattr(index.ak, "index_zh_a_hist", lambda **kwargs: pd.DataFrame())
 
-        df = index._fetch_index_history_data("399439", start_date="20220101", end_date="20260401")
+        df = index.fetch_index_history_data("399439", start_date="20220101", end_date="20260401")
 
         assert csindex_calls == {
             "symbol": "399439",
