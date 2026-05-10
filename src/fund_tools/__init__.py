@@ -8,7 +8,6 @@ from .cache import (
     get_fund_list,
     get_index_list,
     update_index_cache,
-    update_capital_flow_cache,
     FUND_DB_FILE,
     INDEX_DB_FILE,
 )
@@ -37,19 +36,6 @@ from .industry_valuation import (
     get_valuation_heatmap,
     get_csrc_valuation_heatmap,
     format_heatmap_table,
-)
-from .capital_flow_analysis import (
-    get_northbound_holdings,
-    get_southbound_holdings,
-    get_historical_flow,
-    get_fund_flow_summary,
-    get_industry_aggregation,
-    get_top_holdings,
-    get_capital_flow_report,
-    format_industry_report,
-    format_flow_history,
-    get_market_fund_flow,
-    format_market_fund_flow,
 )
 
 # 从 index 模块导入所有指数相关函数
@@ -99,7 +85,6 @@ __all__ = [
     "get_fund_list",
     "get_index_list",
     "update_index_cache",
-    "update_capital_flow_cache",
     "FUND_DB_FILE",
     "INDEX_DB_FILE",
     # Core
@@ -146,17 +131,6 @@ __all__ = [
     "get_valuation_heatmap",
     "get_csrc_valuation_heatmap",
     "format_heatmap_table",
-    "get_northbound_holdings",
-    "get_southbound_holdings",
-    "get_historical_flow",
-    "get_fund_flow_summary",
-    "get_industry_aggregation",
-    "get_top_holdings",
-    "get_capital_flow_report",
-    "format_industry_report",
-    "format_flow_history",
-    "get_market_fund_flow",
-    "format_market_fund_flow",
 ]
 
 __version__ = "2.0.0"

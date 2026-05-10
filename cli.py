@@ -36,11 +36,13 @@ from fund_tools import (
     update_index_cache,
     search_indices_all,
     get_index_query,
+    get_index_query_window,
     get_index_valuation,
     get_index_candidate_funds,
     get_index_details_batch,
     get_index_risk,
     get_valuation_heatmap,
+    get_csrc_valuation_heatmap,
     format_heatmap_table,
     INDEX_DB_FILE,
 )
@@ -377,10 +379,21 @@ def print_index_valuation(details: dict):
             print(f"  {label}:  当前 {current} | 中位数 {median} | 最低 {low} | 最高 {high}")
 
     # 估值等级
+    pe_level = details.get('PE估值等级') or details.get('估值等级_PE')
+    pb_level = details.get('PB估值等级') or details.get('估值等级_PB')
     valuation_level = details.get('估值等级')
-    if valuation_level and valuation_level != "N/A":
+    if (pe_level and pe_level != "N/A") or (pb_level and pb_level != "N/A") or (
+        valuation_level and valuation_level != "N/A"
+    ):
         print()
-        print(f"  🌡️  估值温度:  {valuation_level}")
+        print("  🌡️  估值温度")
+        print("  " + "-" * 60)
+        if pe_level and pe_level != "N/A":
+            print(f"  PE口径:  {pe_level}")
+        if pb_level and pb_level != "N/A":
+            print(f"  PB口径:  {pb_level}")
+        elif valuation_level and valuation_level != "N/A":
+            print(f"  兼容字段估值等级:  {valuation_level}")
 
     # 口径与规则
     valuation_method = details.get('估值口径')
@@ -754,7 +767,7 @@ def main():
   6. 批量查询:
      python cli.py index batch 000300 000905 000852
 
-项目主页: https://github.com/example/ttjj-fund
+  项目主页: https://github.com/example/ttjj-fund
         """
     )
 
@@ -762,7 +775,7 @@ def main():
     parser.add_argument('--debug', '-D', action='store_true',
                         help='启用调试模式，显示详细日志')
 
-    subparsers = parser.add_subparsers(dest='category', help='查询类别: bond(基金) 或 index(指数)')
+    subparsers = parser.add_subparsers(dest='category', help='查询类别: bond(基金) / index(指数)')
 
     # ============================================================
     # bond 子命令（基金相关）
@@ -877,6 +890,8 @@ def main():
                                       choices=['pe', 'pb', 'dividend', 'valuation', 'category'],
                                       help='排序字段（默认: pe）')
     index_heatmap_parser.add_argument('--limit', type=int, default=30, help='显示条数（默认: 30）')
+    index_heatmap_parser.add_argument('--CSRC', dest='use_csrc', action='store_true',
+                                      help='改为输出证监会行业静态PE热力图')
 
     # index update
     index_subparsers.add_parser('update', help='更新指数数据库')
@@ -1138,12 +1153,30 @@ def main():
             print(f"📊 查询指数: {args.code}")
             print()
 
-            query = get_index_query(args.code)
+            # 复用历史数据，避免重复网络调用
+            from src.fund_tools.index import fetch_index_history_data, _get_index_context
+
+            index_info = _get_index_context(args.code)
+            if args.detail:
+                # 使用时间窗口获取历史数据，与 get_index_query 保持一致
+                query_start_date, query_end_date = get_index_query_window()
+                df_hist = fetch_index_history_data(
+                    args.code,
+                    start_date=query_start_date,
+                    end_date=query_end_date
+                )
+            else:
+                df_hist = None
+
+            query = get_index_query(args.code, df_hist=df_hist, index_info=index_info)
             print_index_query(query)
 
             if args.detail and query.get("status") == "success":
-                print_index_valuation(get_index_valuation(args.code))
-                print_index_risk(get_index_risk(args.code))
+                valuation = get_index_valuation(args.code, df_hist=df_hist, index_info=index_info)
+                print_index_valuation(valuation)
+
+                risk = get_index_risk(args.code, df_hist=df_hist)
+                print_index_risk(risk)
 
         elif args.command == 'valuation':
             print_banner()
@@ -1192,10 +1225,14 @@ def main():
 
         elif args.command == 'heatmap':
             print_banner()
-            print(f"📈 查询指数估值热力图: 分类={args.heatmap_category} 排序={args.sort_by}")
+            report_name = "证监会行业静态PE热力图" if args.use_csrc else "指数估值热力图"
+            print(f"📈 查询{report_name}: 分类={args.heatmap_category} 排序={args.sort_by}")
             print()
 
-            result = get_valuation_heatmap(category=args.heatmap_category, sort_by=args.sort_by)
+            if args.use_csrc:
+                result = get_csrc_valuation_heatmap(category=args.heatmap_category, sort_by=args.sort_by)
+            else:
+                result = get_valuation_heatmap(category=args.heatmap_category, sort_by=args.sort_by)
             print_index_heatmap(result, limit=args.limit)
 
         else:
