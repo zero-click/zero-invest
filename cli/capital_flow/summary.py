@@ -41,23 +41,13 @@ def print_capital_flow_summary(result: dict):
 
 
 @cf_app.command("summary")
-def summary(
-    direction: str = typer.Option(
-        "北向", "--direction", "-d",
-        help="资金方向（默认: 北向）",
-    ),
-):
-    """沪深港通资金流总览"""
+def summary():
+    """沪深港通资金流总览（返回所有方向数据）"""
     from fund_tools import get_capital_flow_summary
 
-    _valid_directions = ["北向", "沪股通", "深股通", "南向", "港股通沪", "港股通深"]
-    if direction not in _valid_directions:
-        print(f"  ❌ 无效的资金方向: {direction}，可选: {', '.join(_valid_directions)}")
-        raise typer.Exit(code=1)
-
     print_banner()
-    print(f"💰 沪深港通资金流总览: {direction}")
+    print("💰 沪深港通资金流总览")
     print()
 
-    result = get_capital_flow_summary(direction=direction)
+    result = get_capital_flow_summary()
     print_capital_flow_summary(result)
