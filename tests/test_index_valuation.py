@@ -33,8 +33,14 @@ class TestValuationLevel:
     def test_reasonable(self):
         assert "合理" in _get_valuation_level(50)
 
+    def test_reasonable_upper(self):
+        assert "合理偏上" in _get_valuation_level(65)
+
+    def test_slightly_expensive(self):
+        assert "偏高" in _get_valuation_level(75)
+
     def test_overvalued(self):
-        assert "高估" in _get_valuation_level(85)
+        assert "高估" in _get_valuation_level(90)
 
     def test_extremely_overvalued(self):
         assert "极度高估" in _get_valuation_level(95)
