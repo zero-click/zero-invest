@@ -15,3 +15,6 @@ pytest-mock>=3.10.0
 # HTTP 传输 (用于 streamable-http)
 # uvicorn[standard]>=0.30.0
 # pydantic>=2.0.0
+
+# CLI 框架
+typer>=0.15.0
