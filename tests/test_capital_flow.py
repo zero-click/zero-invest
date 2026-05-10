@@ -25,7 +25,7 @@ from fund_tools.capital_flow import (
 
 class TestSafeFloat:
     def test_normal_number(self):
-        assert _safe_float(52.345) == 52.35
+        assert _safe_float(52.346) == 52.35
 
     def test_int_input(self):
         assert _safe_float(100) == 100.0

@@ -37,6 +37,11 @@ from .industry_valuation import (
     get_csrc_valuation_heatmap,
     format_heatmap_table,
 )
+from .capital_flow import (
+    get_capital_flow_summary,
+    get_capital_flow_history,
+    get_northbound_sector_rank,
+)
 
 # 从 index 模块导入所有指数相关函数
 from .index import (
@@ -131,6 +136,10 @@ __all__ = [
     "get_valuation_heatmap",
     "get_csrc_valuation_heatmap",
     "format_heatmap_table",
+    # Capital Flow
+    "get_capital_flow_summary",
+    "get_capital_flow_history",
+    "get_northbound_sector_rank",
 ]
 
 __version__ = "2.0.0"
