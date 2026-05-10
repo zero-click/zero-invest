@@ -167,6 +167,7 @@ def _build_valuation_summary(rows: List[Dict[str, Any]], field: str) -> Dict[str
         "低估": sum(1 for item in rows if item.get(field) == "低估 🟢"),
         "偏低": sum(1 for item in rows if item.get(field) == "偏低 🟡"),
         "合理": sum(1 for item in rows if item.get(field) == "合理 🟠"),
+        "合理偏上": sum(1 for item in rows if item.get(field) == "合理偏上 🟠"),
         "偏高": sum(1 for item in rows if item.get(field) == "偏高 🔴"),
         "高估": sum(1 for item in rows if item.get(field) == "高估 🔥"),
         "极度高估": sum(1 for item in rows if item.get(field) == "极度高估 🚨"),
@@ -412,13 +413,13 @@ def format_heatmap_table(heatmap: Dict[str, Any], limit: int = 30) -> str:
 
     lines.append(
         f"PE口径: 共 {heatmap['total']} 条 | 低估 {summary_pe.get('极度低估', 0) + summary_pe.get('低估', 0)} "
-        f"| 合理 {summary_pe.get('偏低', 0) + summary_pe.get('合理', 0)} "
+        f"| 合理 {summary_pe.get('偏低', 0) + summary_pe.get('合理', 0) + summary_pe.get('合理偏上', 0)} "
         f"| 高估 {summary_pe.get('偏高', 0) + summary_pe.get('高估', 0) + summary_pe.get('极度高估', 0)} "
         f"| 未知 {summary_pe.get('未知', 0)}"
     )
     lines.append(
         f"PB口径: 共 {heatmap['total']} 条 | 低估 {summary_pb.get('极度低估', 0) + summary_pb.get('低估', 0)} "
-        f"| 合理 {summary_pb.get('偏低', 0) + summary_pb.get('合理', 0)} "
+        f"| 合理 {summary_pb.get('偏低', 0) + summary_pb.get('合理', 0) + summary_pb.get('合理偏上', 0)} "
         f"| 高估 {summary_pb.get('偏高', 0) + summary_pb.get('高估', 0) + summary_pb.get('极度高估', 0)} "
         f"| 未知 {summary_pb.get('未知', 0)}"
     )

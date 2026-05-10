@@ -174,7 +174,7 @@ class TestFetchIndexValuationIntegration:
         # 验证估值等级（应该是极度低估或低估）
         pe_level = result.get("PE估值等级")
         assert pe_level in ["极度低估 🥶", "低估 🟢", "偏低 🟡", "合理 🟠",
-                          "偏高 🔴", "高估 🔥", "极度高估 🚨", "N/A"], \
+                          "合理偏上 🟠", "偏高 🔴", "高估 🔥", "极度高估 🚨", "N/A"], \
             f"估值等级应为有效值，当前 {pe_level}"
 
         # 中证指数不提供 PB
