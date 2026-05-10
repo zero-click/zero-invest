@@ -55,6 +55,8 @@ def print_capital_flow_summary(result: dict):
         print(f"  {'合计':<14}{_fmt_amount(total_net_buy):<14}{_fmt_amount(total_inflow):<14}{'':<14}{str(total_up):<8}{str(total_down):<8}")
 
     _print_group("🟢 北向资金（外资买入A股）", northbound)
+    if northbound:
+        print("  ⚠️  北向净买额自 2024-08-19 起不再公布，以上数据仅供参考")
     _print_group("🔵 南向资金（内地买入港股）", southbound)
     _print_group("⚪ 其他", other)
 
