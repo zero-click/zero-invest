@@ -737,21 +737,22 @@ def get_capital_flow_summary() -> dict:
 
 
 @mcp.tool()
-def get_capital_flow_history(direction: str = "北向", days: int = 20) -> dict:
+def get_capital_flow_history(direction: str = "南向", days: int = 20) -> dict:
     """
     查询沪深港通历史资金流趋势。
 
     支持北向/南向/沪股通/深股通方向，返回近N日逐日数据及趋势分析。
+    注意: 2024-08-19 后北向方向 data_available=False，净买额不再公布。
 
     Args:
-        direction: 资金方向，可选: 北向(默认)、沪股通、深股通、南向、港股通沪、港股通深
+        direction: 资金方向，可选: 南向(默认)、北向、沪股通、深股通、港股通沪、港股通深
         days: 返回天数，默认20，最大365
 
     Returns:
         历史资金流数据，包含:
         - summary: 趋势分析（持续流入/持续流出/震荡）, 累计净买额, 日均净买额
         - data: 逐日净买额、买入/卖出额、累计净买额
-        注: 2024-08-19 后部分字段可能为 null
+        - data_available: 北向方向为 False
     """
     logger.info(f"📊 查询历史资金流: direction={direction}, days={days}")
     result = fund_tool.get_capital_flow_history(direction=direction, days=days)
@@ -759,34 +760,6 @@ def get_capital_flow_history(direction: str = "北向", days: int = 20) -> dict:
         logger.info(f"✅ 成功获取 {direction} 历史资金流 ({len(result.get('data', []))}天)")
     else:
         logger.warning(f"❌ 获取历史资金流失败: {result.get('message')}")
-    return result
-
-
-@mcp.tool()
-def get_northbound_sector_rank(board_type: str = "行业板块", indicator: str = "5日", top_n: int = 10) -> dict:
-    """
-    获取北向资金行业/概念板块增持排行。
-
-    展示外资在各板块的持股和增持情况，用于判断北向资金偏好。
-
-    Args:
-        board_type: 板块类型，可选: 行业板块(默认)、概念板块
-        indicator: 时间周期，可选: 今日、3日、5日(默认)、10日、1月、1季、1年
-        top_n: 返回条数，默认10
-
-    Returns:
-        板块增持排行，每条包含:
-        - rank: 排名, name: 板块名称, change_pct: 涨跌幅
-        - holding_market_cap: 持股市值(万元), increase_market_cap: 增持市值(万元)
-        - increase_market_cap_change: 增持市值增幅(%)
-        注: 非交易日或数据延迟时可能返回 error
-    """
-    logger.info(f"📊 查询北向资金板块排行: board_type={board_type}, indicator={indicator}, top_n={top_n}")
-    result = fund_tool.get_northbound_sector_rank(board_type=board_type, indicator=indicator, top_n=top_n)
-    if result.get("status") == "success":
-        logger.info(f"✅ 成功获取板块排行 ({len(result.get('data', []))}条)")
-    else:
-        logger.warning(f"❌ 获取板块排行失败: {result.get('message')}")
     return result
 
 
@@ -876,8 +849,7 @@ if __name__ == "__main__":
     logger.info("")
     logger.info("  === 沪深港通资金流分析工具 ===")
     logger.info("  • get_capital_flow_summary - 沪深港通今日资金流总览")
-    logger.info("  • get_capital_flow_history - 历史资金流趋势分析")
-    logger.info("  • get_northbound_sector_rank - 北向资金行业/概念板块排行")
+    logger.info("  • get_capital_flow_history - 历史资金流趋势分析（默认南向）")
     logger.info("")
     logger.info("📦 可用资源:")
     logger.info("  • fund://list - 基金列表")
