@@ -9,7 +9,8 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+_root = os.path.join(os.path.dirname(__file__), "..")
+sys.path.insert(0, os.path.join(os.path.abspath(_root), "src"))
 
 import cli
 from src.fund_tools import format_heatmap_table, get_valuation_heatmap
