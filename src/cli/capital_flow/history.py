@@ -18,6 +18,13 @@ def print_capital_flow_history(result: dict):
     records = result.get('data', [])
     summary = result.get('summary', {})
 
+    # 北向数据不可用提示
+    if result.get('data_available') is False:
+        print(f"  📈 {direction}近{days}日资金流趋势")
+        print("  " + "-" * 70)
+        print("  ⚠️  北向资金净买额自 2024-08-19 起不再公布，数据不可用")
+        return
+
     print(f"  📈 {direction}近{days}日资金流趋势")
     print("  " + "-" * 70)
 
@@ -60,8 +67,8 @@ def print_capital_flow_history(result: dict):
 @cf_app.command("history")
 def history(
     direction: str = typer.Option(
-        "北向", "--direction", "-d",
-        help="资金方向（默认: 北向）",
+        "南向", "--direction", "-d",
+        help="资金方向（默认: 南向）",
     ),
     days: int = typer.Option(30, "--days", "-n", help="查询天数（默认: 30，最大 365）"),
 ):

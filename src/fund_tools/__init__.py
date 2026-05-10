@@ -40,7 +40,6 @@ from .industry_valuation import (
 from .capital_flow import (
     get_capital_flow_summary,
     get_capital_flow_history,
-    get_northbound_sector_rank,
 )
 
 # 从 index 模块导入所有指数相关函数
@@ -139,7 +138,6 @@ __all__ = [
     # Capital Flow
     "get_capital_flow_summary",
     "get_capital_flow_history",
-    "get_northbound_sector_rank",
 ]
 
 __version__ = "2.0.0"
