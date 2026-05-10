@@ -431,3 +431,106 @@ def update_index_cache() -> Dict:
 
     # 重新获取
     return get_index_list()
+
+
+# === 香港基金缓存 ===
+
+HK_FUND_DB_FILE = os.path.join(BASE_DIR, "hk_fund_database.json")
+HK_FUND_DB_TTL = 1 * 24 * 3600  # 1天过期（排行数据每日变化）
+HK_FUND_DB_SCHEMA_VERSION = 1
+
+
+def _load_hk_fund_db_from_disk() -> pd.DataFrame:
+    """从磁盘加载香港基金排行缓存，过期或不存在则返回空 DataFrame"""
+    if not os.path.exists(HK_FUND_DB_FILE):
+        return pd.DataFrame()
+    try:
+        mtime = os.path.getmtime(HK_FUND_DB_FILE)
+        if time.time() - mtime > HK_FUND_DB_TTL:
+            logger.info("香港基金排行缓存已超过1天，需要更新")
+            return pd.DataFrame()
+        with open(HK_FUND_DB_FILE, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+        # 检查 schema version
+        if isinstance(cached, dict):
+            if cached.get("schema_version") != HK_FUND_DB_SCHEMA_VERSION:
+                logger.info("香港基金排行缓存 schema 不匹配，需要更新")
+                return pd.DataFrame()
+            records = cached.get("data", [])
+        else:
+            records = cached
+        df = pd.DataFrame(records)
+        logger.info(f"从本地缓存加载 {len(df)} 只香港基金信息")
+        return df
+    except Exception as e:
+        logger.warning(f"加载香港基金缓存失败: {e}")
+        return pd.DataFrame()
+
+
+def _save_hk_fund_db_to_disk(df: pd.DataFrame) -> None:
+    """保存香港基金排行到本地缓存"""
+    try:
+        # 将 date 等非 JSON 可序列化类型转为字符串
+        df_clean = df.copy()
+        for col in df_clean.columns:
+            df_clean[col] = df_clean[col].apply(
+                lambda x: x.isoformat() if hasattr(x, "isoformat") else x
+            )
+        records = df_clean.to_dict("records")
+        cached = {
+            "schema_version": HK_FUND_DB_SCHEMA_VERSION,
+            "updated_at": time.strftime("%Y-%m-%d"),
+            "total": len(records),
+            "data": records,
+        }
+        with open(HK_FUND_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(cached, f, ensure_ascii=False, indent=2)
+        logger.info(f"已缓存 {len(records)} 只香港基金到 {HK_FUND_DB_FILE}")
+    except Exception as e:
+        logger.error(f"保存香港基金缓存失败: {e}")
+
+
+@lru_cache(maxsize=1)
+def get_hk_fund_list() -> pd.DataFrame:
+    """
+    获取香港基金排行数据（带磁盘缓存）
+
+    Returns:
+        香港基金排行 DataFrame，包含 基金代码、基金简称、币种、单位净值、
+        各期收益率、可购买状态、香港基金代码 等字段
+    """
+    # 尝试从磁盘加载
+    df = _load_hk_fund_db_from_disk()
+    if not df.empty:
+        return df
+
+    try:
+        logger.info("正在获取香港基金排行数据...")
+        import akshare as ak
+        df = ak.fund_hk_rank_em()
+        if df is not None and not df.empty:
+            _save_hk_fund_db_to_disk(df)
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        logger.error(f"获取香港基金排行数据失败: {e}")
+        return pd.DataFrame()
+
+
+def update_hk_fund_cache() -> Dict:
+    """
+    强制更新香港基金排行缓存
+
+    Returns:
+        更新结果
+    """
+    get_hk_fund_list.cache_clear()
+
+    if os.path.exists(HK_FUND_DB_FILE):
+        os.remove(HK_FUND_DB_FILE)
+        logger.info(f"已删除过期缓存: {HK_FUND_DB_FILE}")
+
+    df = get_hk_fund_list()
+    if df.empty:
+        return {"status": "error", "message": "更新香港基金缓存失败"}
+    return {"status": "success", "count": len(df)}
