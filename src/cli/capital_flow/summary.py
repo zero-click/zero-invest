@@ -23,9 +23,10 @@ def print_capital_flow_summary(result: dict):
         print("  ℹ️  暂无明细数据")
         return
 
-    # 按方向分组
+    # 按方向分组（akshare 只返回 北向/南向，其他方向做 fallback）
     northbound = [c for c in channels if c.get('direction') == '北向']
     southbound = [c for c in channels if c.get('direction') == '南向']
+    other = [c for c in channels if c.get('direction') not in ('北向', '南向')]
 
     def _print_group(label, items):
         if not items:
@@ -55,9 +56,10 @@ def print_capital_flow_summary(result: dict):
 
     _print_group("🟢 北向资金（外资买入A股）", northbound)
     _print_group("🔵 南向资金（内地买入港股）", southbound)
+    _print_group("⚪ 其他", other)
 
-    # 交易状态
-    statuses = set(c.get('trade_status', '') for c in channels)
+    # 交易状态（过滤空值）
+    statuses = {c.get('trade_status', '') for c in channels if c.get('trade_status')}
     if statuses:
         print(f"\n  交易状态: {', '.join(statuses)}")
     print()
