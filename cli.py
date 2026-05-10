@@ -45,6 +45,10 @@ from fund_tools import (
     get_csrc_valuation_heatmap,
     format_heatmap_table,
     INDEX_DB_FILE,
+    # 资金流相关
+    get_capital_flow_summary,
+    get_capital_flow_history,
+    get_northbound_sector_rank,
 )
 
 logger = logging.getLogger(__name__)
@@ -712,6 +716,135 @@ def print_liquidity_info(result: dict):
 
 
 # ============================================================================
+# 资金流相关打印函数
+# ============================================================================
+
+def _fmt_amount(val) -> str:
+    """格式化金额（亿元），自动对齐正负"""
+    if val is None:
+        return "N/A"
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        return str(val)
+    if v >= 0:
+        return f"+{v:,.2f}亿"
+    return f"{v:,.2f}亿"
+
+
+def print_capital_flow_summary(result: dict):
+    """打印沪深港通资金流总览"""
+    if result.get('status') == 'error':
+        print(f"  ❌ {result.get('message', '查询失败')}")
+        return
+
+    data = result.get('data', {})
+    direction = data.get('direction', '')
+    summary = data.get('summary', {})
+
+    print(f"  📊 {direction}资金流总览")
+    print("  " + "-" * 60)
+    for key, value in summary.items():
+        print(f"    {key}: {value}")
+    print()
+
+    items = data.get('items', [])
+    if not items:
+        print("  ℹ️  暂无明细数据")
+        return
+
+    # 动态列宽
+    print(f"  {'板块':<12}{'成交净买额':<16}{'资金净流入':<16}{'当日资金余额':<16}")
+    print("  " + "-" * 60)
+    for item in items:
+        name = item.get('板块', 'N/A')
+        net_buy = _fmt_amount(item.get('成交净买额'))
+        net_flow = _fmt_amount(item.get('资金净流入'))
+        balance = _fmt_amount(item.get('当日资金余额'))
+        print(f"  {name:<12}{net_buy:<16}{net_flow:<16}{balance:<16}")
+    print()
+
+
+def print_capital_flow_history(result: dict):
+    """打印沪深港通资金流历史趋势"""
+    if result.get('status') == 'error':
+        print(f"  ❌ {result.get('message', '查询失败')}")
+        return
+
+    data = result.get('data', {})
+    direction = data.get('direction', '')
+    days = data.get('days', 0)
+    records = data.get('records', [])
+    trend = data.get('trend_analysis', {})
+
+    print(f"  📈 {direction}近{days}日资金流趋势")
+    print("  " + "-" * 70)
+
+    if not records:
+        print("  ℹ️  暂无历史数据")
+        return
+
+    print(f"  {'日期':<14}{'成交净买额(亿)':<16}{'资金净流入(亿)':<16}")
+    print("  " + "-" * 46)
+    # 倒序显示（最新在前），最多显示最近 20 条
+    for rec in reversed(records[-20:]):
+        date = rec.get('date', 'N/A')
+        net_buy = _fmt_amount(rec.get('net_buy_amount'))
+        net_flow = _fmt_amount(rec.get('net_flow_amount'))
+        print(f"  {date:<14}{net_buy:<16}{net_flow:<16}")
+
+    if len(records) > 20:
+        print(f"  ... 共 {len(records)} 条记录，仅显示最近 20 条")
+    print()
+
+    if trend:
+        print("  📊 趋势分析")
+        print("  " + "-" * 40)
+        if trend.get('direction'):
+            print(f"    整体趋势: {trend['direction']}")
+        if trend.get('total_net_buy') is not None:
+            print(f"    累计净买入: {_fmt_amount(trend['total_net_buy'])}")
+        if trend.get('avg_daily_net_buy') is not None:
+            print(f"    日均净买入: {_fmt_amount(trend['avg_daily_net_buy'])}")
+        if trend.get('max_net_buy') is not None:
+            print(f"    最大单日净买入: {_fmt_amount(trend['max_net_buy'])}")
+        if trend.get('max_net_sell') is not None:
+            print(f"    最大单日净卖出: {_fmt_amount(trend['max_net_sell'])}")
+        print()
+
+
+def print_northbound_sector_rank(result: dict):
+    """打印北向资金板块排行"""
+    if result.get('status') == 'error':
+        print(f"  ❌ {result.get('message', '查询失败')}")
+        return
+
+    data = result.get('data', {})
+    direction = data.get('direction', '')
+    indicator = data.get('indicator', '')
+    board_type = data.get('board_type', '')
+
+    items = data.get('items', [])
+    if not items:
+        print("  ℹ️  暂无排行数据（非交易日可能无数据）")
+        return
+
+    print(f"  🏆 {direction} {board_type}排行（{indicator}资金）")
+    print("  " + "-" * 80)
+    print(f"  {'排名':<6}{'板块名称':<18}{'涨跌幅%':<10}{'净买额(亿)':<14}{'净流入(亿)':<14}{'上涨数':<8}{'下跌数':<8}")
+    print("  " + "-" * 80)
+    for i, item in enumerate(items, 1):
+        name = item.get('name', 'N/A')
+        change = item.get('change_pct', 'N/A')
+        net_buy = _fmt_amount(item.get('net_buy_amount'))
+        net_flow = _fmt_amount(item.get('net_flow_amount'))
+        up = item.get('up_count', 'N/A')
+        down = item.get('down_count', 'N/A')
+        print(f"  {i:<6}{name:<18}{str(change):<10}{net_buy:<14}{net_flow:<14}{str(up):<8}{str(down):<8}")
+    print()
+
+
+# ============================================================================
 # 主函数
 # ============================================================================
 
@@ -895,6 +1028,40 @@ def main():
 
     # index update
     index_subparsers.add_parser('update', help='更新指数数据库')
+
+    # ============================================================
+    # capital-flow 子命令（沪深港通资金流）
+    # ============================================================
+    cf_parser = subparsers.add_parser('capital-flow', help='沪深港通资金流分析')
+    cf_subparsers = cf_parser.add_subparsers(dest='command', help='资金流命令')
+
+    # capital-flow summary
+    cf_summary_parser = cf_subparsers.add_parser('summary', help='沪深港通资金流总览')
+    cf_summary_parser.add_argument('--direction', '-d', type=str, default='北向',
+                                    choices=['北向', '沪股通', '深股通', '南向', '港股通沪', '港股通深'],
+                                    help='资金方向（默认: 北向）')
+
+    # capital-flow history
+    cf_history_parser = cf_subparsers.add_parser('history', help='沪深港通资金流历史趋势')
+    cf_history_parser.add_argument('--direction', '-d', type=str, default='北向',
+                                    choices=['北向', '沪股通', '深股通', '南向', '港股通沪', '港股通深'],
+                                    help='资金方向（默认: 北向）')
+    cf_history_parser.add_argument('--days', '-n', type=int, default=30,
+                                    help='查询天数（默认: 30，最大 365）')
+
+    # capital-flow sector-rank
+    cf_sector_parser = cf_subparsers.add_parser('sector-rank', help='北向资金板块排行')
+    cf_sector_parser.add_argument('--indicator', '-i', type=str, default='今日',
+                                    choices=['今日', '3日', '5日', '10日', '1月', '1季', '1年'],
+                                    help='资金指标周期（默认: 今日）')
+    cf_sector_parser.add_argument('--board-type', '-b', type=str, default='行业板块',
+                                    choices=['行业板块', '概念板块'],
+                                    help='板块类型（默认: 行业板块）')
+    cf_sector_parser.add_argument('--direction', '-d', type=str, default='北向',
+                                    choices=['北向', '沪股通', '深股通'],
+                                    help='资金方向（默认: 北向）')
+    cf_sector_parser.add_argument('--top', '-n', type=int, default=15,
+                                    help='显示前N名（默认: 15，最大 50）')
 
     args = parser.parse_args()
 
@@ -1237,6 +1404,46 @@ def main():
 
         else:
             index_subparsers.choices[args.command].print_help()
+
+    # ============================================================
+    # 处理 capital-flow 命令（沪深港通资金流）
+    # ============================================================
+    elif args.category == 'capital-flow':
+        if not args.command:
+            cf_parser.print_help()
+            return
+
+        if args.command == 'summary':
+            print_banner()
+            print(f"💰 沪深港通资金流总览: {args.direction}")
+            print()
+
+            result = get_capital_flow_summary(direction=args.direction)
+            print_capital_flow_summary(result)
+
+        elif args.command == 'history':
+            print_banner()
+            print(f"📈 沪深港通资金流历史: {args.direction} 近{args.days}日")
+            print()
+
+            result = get_capital_flow_history(direction=args.direction, days=args.days)
+            print_capital_flow_history(result)
+
+        elif args.command == 'sector-rank':
+            print_banner()
+            print(f"🏆 北向资金板块排行: {args.direction} {args.board_type}({args.indicator})")
+            print()
+
+            result = get_northbound_sector_rank(
+                indicator=args.indicator,
+                board_type=args.board_type,
+                direction=args.direction,
+                top_n=args.top,
+            )
+            print_northbound_sector_rank(result)
+
+        else:
+            cf_subparsers.choices[args.command].print_help()
 
     else:
         parser.print_help()
