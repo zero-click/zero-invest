@@ -115,6 +115,7 @@ python cli.py index listfund 000300 --all
 python cli.py index heatmap
 python cli.py index heatmap --sort-by pb --limit 20
 python cli.py index heatmap --category 宽基 --sort-by pe --limit 30
+python cli.py index heatmap --CSRC
 ```
 
 ### Debug 模式
@@ -157,9 +158,10 @@ Claude Desktop 配置示例：
 
 - 基金列表、基金详情、费率、持仓、排行：东方财富、天天基金等 akshare 数据源。
 - 指数列表：中证指数、东方财富指数实时行情、Sina 指数实时行情、akshare 指数信息表。
-- 指数历史行情：优先使用中证指数，缺失时 fallback 到东方财富 `index_zh_a_hist`。
-- 宽基估值分位：乐咕乐股 PE/PB 数据。
-- 行业估值：证监会行业 PE 数据、申万行业估值数据等 akshare 数据源。
+- 指数历史行情：优先使用 Sina / 腾讯 / 东方财富日线接口，缺失时 fallback 到中证指数 `stock_zh_index_hist_csindex` 和东方财富 `index_zh_a_hist`。
+- 指数估值分位：乐咕乐股 PE/PB 数据。
+- 默认热力图：行业指数代码 + 宽基指数代码，统一走指数估值链路。
+- `index heatmap --CSRC`：证监会行业静态 PE 快照。
 
 数据依赖第三方公开接口，可能存在延迟、缺失、接口变更或临时不可用。
 
