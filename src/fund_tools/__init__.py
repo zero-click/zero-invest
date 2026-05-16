@@ -12,6 +12,7 @@ from .cache import (
     INDEX_DB_FILE,
 )
 from .core import (
+    VALID_FUND_TYPES,
     search_funds,
     query_fund_details,
     get_fund_rankings,
@@ -68,7 +69,6 @@ from .index import (
     get_index_details_batch,
     get_index_risk,
     get_csrc_industry_pe_snapshot,
-    get_csrc_industry_pe_snapshot,
     # 便捷函数
     get_broad_indices,
     get_industry_indices,
@@ -103,6 +103,7 @@ __all__ = [
     "FUND_DB_FILE",
     "INDEX_DB_FILE",
     # Core
+    "VALID_FUND_TYPES",
     "search_funds",
     "query_fund_details",
     "get_fund_rankings",

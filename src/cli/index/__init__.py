@@ -13,4 +13,5 @@ from . import batch       # noqa: F401
 from . import risk        # noqa: F401
 from . import listfund    # noqa: F401
 from . import heatmap     # noqa: F401
+from . import daily       # noqa: F401
 from . import update      # noqa: F401

@@ -116,96 +116,150 @@ def print_fund_details(details: dict):
             print(f"  {key}: {value}")
 
 
+def print_hk_fund_history(result: dict, limit: int = 20):
+    """打印香港基金历史净值"""
+    if result.get('status') == 'error':
+        print(f"  ❌ {result.get('message', '查询失败')}")
+        return
+
+    data = result.get("data", [])
+    name = result.get("name", "")
+    count = result.get("count", 0)
+    history_type = result.get("type", "历史净值明细")
+
+    print(f"  基金: {name} ({result.get('code', '')})")
+    print(f"  共 {count} 条记录，显示最近 {min(limit, count)} 条:")
+    print()
+
+    if not data:
+        print("  ℹ️  暂无数据")
+        return
+
+    show = data[:limit]
+    if history_type == "历史净值明细":
+        print(f"  {'日期':<14}{'单位净值':<14}{'累计净值':<14}{'日增长率':<10}")
+        print("  " + "-" * 52)
+        for item in show:
+            dt = str(item.get("净值日期", item.get("日期", "")))[:12]
+            nav = item.get("单位净值", item.get("净值", "N/A"))
+            acc = item.get("累计净值", "N/A")
+            growth = item.get("日增长率", "N/A")
+            nav_str = f"{nav:.4f}" if isinstance(nav, (int, float)) else str(nav)
+            acc_str = f"{acc:.4f}" if isinstance(acc, (int, float)) else str(acc)
+            g_str = f"{growth:.2f}%" if isinstance(growth, (int, float)) else str(growth)
+            print(f"  {dt:<14}{nav_str:<14}{acc_str:<14}{g_str:<10}")
+    else:
+        for item in show:
+            parts = [f"{k}: {v}" for k, v in item.items()]
+            print(f"  {' | '.join(parts)}")
+
+
 @bond_app.command("query")
 def query(
     code: str = typer.Argument(..., help="6位基金代码"),
     detail: bool = typer.Option(False, "--detail", "-d",
                                 help="显示完整详情（包括基金经理、持仓、配置、费用、流动性等）"),
+    hk: bool = typer.Option(False, "--hk", help="查询香港基金历史净值"),
 ):
-    """查询基金详细信息"""
-    from fund_tools import (
-        query_fund_details,
-        get_fund_manager_details,
-        get_fund_portfolio_analysis,
-        get_fund_fee_details,
-        get_fund_liquidity_info,
-        get_fund_rating,
-    )
+    """查询基金详细信息
 
+    内地基金：显示详细基金信息（支持 --detail 展开完整报告）
+    香港基金（--hk）：显示历史净值或分红送配详情
+    """
     print_banner()
-    print(f"📊 查询基金: {code}")
-    print()
 
-    if detail:
-        # 完整详情模式：调用所有查询函数
-        print("=" * 70)
-        print("  📋 基金完整分析报告")
-        print("=" * 70)
+    if hk:
+        from fund_tools import get_hk_fund_history
+
+        print(f"📈 查询香港基金: {code}")
         print()
 
-        # 1. 基本信息
-        details = query_fund_details(code, year=get_current_year())
-        print_fund_details(details)
+        result = get_hk_fund_history(code=code)
 
-        # 2. 基金经理详情
-        print("=" * 70)
-        print("  👤 基金经理详情")
-        print("=" * 70)
-        print()
-        manager_result = get_fund_manager_details(code)
-        print_manager_details(manager_result)
-
-        # 3. 投资组合完整分析
-        print("=" * 70)
-        print("  📊 投资组合完整分析")
-        print("=" * 70)
-        print()
-        portfolio_result = get_fund_portfolio_analysis(code, year=get_current_year())
-        from .portfolio import print_portfolio_analysis
-        print_portfolio_analysis(portfolio_result)
-
-        # 4. 费用明细
-        print("=" * 70)
-        print("  💰 费用明细")
-        print("=" * 70)
-        print()
-        fee_result = get_fund_fee_details(code)
-        from .fee import print_fee_details
-        print_fee_details(fee_result)
-
-        # 5. 流动性信息
-        print("=" * 70)
-        print("  💧 流动性信息")
-        print("=" * 70)
-        print()
-        liquidity_result = get_fund_liquidity_info(code)
-        from .liquidity import print_liquidity_info
-        print_liquidity_info(liquidity_result)
-
-        # 6. 基金评级
-        print("=" * 70)
-        print("  ⭐ 基金评级")
-        print("=" * 70)
-        print()
-        rating_result = get_fund_rating(code)
-        if rating_result.get('status') == 'success':
-            ratings = rating_result.get('ratings')
-            if ratings:
-                for key, value in ratings.items():
-                    print(f"  {key}: {value}")
-            else:
-                print(f"  {rating_result.get('message', '暂无评级数据')}")
-        else:
-            print(f"  {rating_result.get('message', '查询失败')}")
-        print()
-
-        print("=" * 70)
-        print("  ✅ 分析报告完成")
-        print("=" * 70)
+        print_hk_fund_history(result, limit=detail and 100 or 20)
     else:
-        # 标准模式：只显示基本信息
-        details = query_fund_details(code, year=get_current_year())
-        print_fund_details(details)
+        from fund_tools import (
+            query_fund_details,
+            get_fund_manager_details,
+            get_fund_portfolio_analysis,
+            get_fund_fee_details,
+            get_fund_liquidity_info,
+            get_fund_rating,
+        )
+
+        print(f"📊 查询基金: {code}")
+        print()
+
+        if detail:
+            # 完整详情模式：调用所有查询函数
+            print("=" * 70)
+            print("  📋 基金完整分析报告")
+            print("=" * 70)
+            print()
+
+            # 1. 基本信息
+            details = query_fund_details(code, year=get_current_year())
+            print_fund_details(details)
+
+            # 2. 基金经理详情
+            print("=" * 70)
+            print("  👤 基金经理详情")
+            print("=" * 70)
+            print()
+            manager_result = get_fund_manager_details(code)
+            print_manager_details(manager_result)
+
+            # 3. 投资组合完整分析
+            print("=" * 70)
+            print("  📊 投资组合完整分析")
+            print("=" * 70)
+            print()
+            portfolio_result = get_fund_portfolio_analysis(code, year=get_current_year())
+            from .portfolio import print_portfolio_analysis
+            print_portfolio_analysis(portfolio_result)
+
+            # 4. 费用明细
+            print("=" * 70)
+            print("  💰 费用明细")
+            print("=" * 70)
+            print()
+            fee_result = get_fund_fee_details(code)
+            from .fee import print_fee_details
+            print_fee_details(fee_result)
+
+            # 5. 流动性信息
+            print("=" * 70)
+            print("  💧 流动性信息")
+            print("=" * 70)
+            print()
+            liquidity_result = get_fund_liquidity_info(code)
+            from .liquidity import print_liquidity_info
+            print_liquidity_info(liquidity_result)
+
+            # 6. 基金评级
+            print("=" * 70)
+            print("  ⭐ 基金评级")
+            print("=" * 70)
+            print()
+            rating_result = get_fund_rating(code)
+            if rating_result.get('status') == 'success':
+                ratings = rating_result.get('ratings')
+                if ratings:
+                    for key, value in ratings.items():
+                        print(f"  {key}: {value}")
+                else:
+                    print(f"  {rating_result.get('message', '暂无评级数据')}")
+            else:
+                print(f"  {rating_result.get('message', '查询失败')}")
+            print()
+
+            print("=" * 70)
+            print("  ✅ 分析报告完成")
+            print("=" * 70)
+        else:
+            # 标准模式：只显示基本信息
+            details = query_fund_details(code, year=get_current_year())
+            print_fund_details(details)
 
 
 def print_manager_details(result: dict):
