@@ -16,7 +16,13 @@
 import pytest
 
 # 标记为集成测试（需要网络）
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not pytest.importorskip("akshare", reason="akshare not installed"),
+        reason="集成测试需要网络连接和 akshare",
+    ),
+]
 
 from fund_tools.hk_fund import (
     get_hk_fund_rankings,

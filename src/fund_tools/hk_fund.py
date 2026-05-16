@@ -12,7 +12,7 @@
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import akshare as ak
 import pandas as pd
@@ -117,33 +117,6 @@ def search_hk_funds(keyword: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"搜索香港基金失败: {e}")
         return {"status": "error", "message": f"搜索香港基金失败: {str(e)}"}
-
-
-def _find_hk_fund_code(code: str) -> Optional[str]:
-    """
-    通过6位基金代码查找对应的香港基金代码
-
-    Args:
-        code: 6位基金代码
-
-    Returns:
-        香港基金代码，未找到返回 None
-    """
-    df = get_hk_fund_list()
-    if df.empty:
-        return None
-
-    # 在基金代码列中查找
-    matches = df[df["基金代码"].astype(str) == str(code)]
-    if matches.empty:
-        return None
-
-    row = matches.iloc[0]
-    hk_code = str(row.get("香港基金代码", ""))
-    if not hk_code or hk_code == "nan":
-        return None
-
-    return hk_code
 
 
 def get_hk_fund_history(

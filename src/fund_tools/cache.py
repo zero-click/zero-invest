@@ -506,7 +506,6 @@ def get_hk_fund_list() -> pd.DataFrame:
 
     try:
         logger.info("正在获取香港基金排行数据...")
-        import akshare as ak
         df = ak.fund_hk_rank_em()
         if df is not None and not df.empty:
             _save_hk_fund_db_to_disk(df)

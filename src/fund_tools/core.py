@@ -32,6 +32,10 @@ def _get_all_managers() -> pd.DataFrame:
         return pd.DataFrame()
 
 # 全局函数，获得所有基金的排名
+# 基金类型白名单
+VALID_FUND_TYPES = ["全部", "股票型", "混合型", "债券型", "指数型", "QDII", "FOF"]
+
+
 def get_fund_rankings(fund_type: str = "全部") -> Dict[str, Any]:
     """
     获取基金排行榜

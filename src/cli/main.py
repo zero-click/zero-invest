@@ -14,12 +14,10 @@ def _register():
     from .bond import bond_app
     from .index import index_app
     from .capital_flow import cf_app
-    from .hk import hk_app
 
     app.add_typer(bond_app, name="bond")
     app.add_typer(index_app, name="index")
     app.add_typer(cf_app, name="capital-flow")
-    app.add_typer(hk_app, name="hk")
 
 
 _register()
