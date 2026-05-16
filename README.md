@@ -1,6 +1,6 @@
 # ttjj-fund
 
-中国公募基金与 A 股指数信息查询工具，基于 `akshare` 和 MCP Python SDK。项目同时提供命令行 CLI 和 MCP 服务，适合做基金研究、指数估值查询、候选指数基金筛选和本地数据缓存。
+中国公募基金与 A 股指数信息查询工具，基于 `akshare` 数据源。项目提供命令行 CLI 工具，适合做基金研究、指数估值查询、候选指数基金筛选和本地数据缓存。
 
 ## 主要功能
 
@@ -125,35 +125,6 @@ python cli.py --debug bond query 000001
 python cli.py --debug index valuation 000300
 ```
 
-## MCP 使用
-
-启动 MCP 服务：
-
-```bash
-./start_mcp.sh
-```
-
-或直接运行：
-
-```bash
-python fund_mcp_server.py
-```
-
-Claude Desktop 配置示例：
-
-```json
-{
-  "mcpServers": {
-    "fund-info": {
-      "command": "/path/to/ttjj-fund/.venv/bin/python",
-      "args": ["/path/to/ttjj-fund/fund_mcp_server.py"]
-    }
-  }
-}
-```
-
-将 `/path/to/ttjj-fund` 替换为本地项目路径。
-
 ## 数据来源
 
 - 基金列表、基金详情、费率、持仓、排行：东方财富、天天基金等 akshare 数据源。
@@ -185,13 +156,15 @@ pytest -q tests/test_industry_heatmap.py -m integration
 ```text
 ttjj-fund/
 ├── cli.py                         # CLI 入口
-├── fund_mcp_server.py             # MCP 服务入口
 ├── requirements.txt               # Python 依赖
-├── start_mcp.sh                   # MCP 启动脚本
 ├── src/fund_tools/
-│   ├── cache.py                   # 基金/指数本地缓存
-│   ├── core.py                    # 基金查询与分析
-│   ├── index.py                   # 指数查询、估值、风险
+│   ├── __init__.py
+│   ├── cache.py                   # 基金/指数/香港基金本地缓存
+│   ├── core.py                    # 基金核心函数
+│   ├── index.py                   # 指数查询、估值、风险、历史行情
+│   ├── hk_fund.py                 # 香港基金：排行、搜索、历史净值
+│   ├── hk_index.py                # 港股指数：实时行情、历史行情
+│   ├── capital_flow.py            # 沪深港通资金流
 │   └── industry_valuation.py      # 指数估值热力图
 └── tests/                         # 单元测试与集成测试
 ```
@@ -205,6 +178,12 @@ ttjj-fund/
 - 如果使用代理环境变量访问国内数据源出现连接异常，可以先清理 `http_proxy`、`https_proxy` 等环境变量。
 
 ## Changelog
+
+### 2026-05-16
+
+- 移除 MCP 服务能力，项目简化为纯 CLI 工具。
+- 删除 `fund_mcp_server.py` 和 `start_mcp.sh`。
+- 更新文档，移除所有 MCP 相关说明。
 
 ### 2026-04-27
 
@@ -224,7 +203,7 @@ ttjj-fund/
 
 ### 2026-04-19
 
-- 初始 MCP 服务和 CLI 工具。
+- 初始 CLI 工具。
 - 支持基金搜索、基金详情、持仓、费用、风险和评级查询。
 
 ## Author
