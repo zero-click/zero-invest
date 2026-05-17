@@ -1,19 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-行业与宽基估值热力图
+行业指数与宽基指数估值热力图
 
 约束:
-  - 宽基指数数据统一复用 index.py 的公开函数
-  - 保留热力图输出
+  - 默认热力图统一复用 index.py 的指数估值链路
+  - 证监会行业静态 PE 快照独立为单独报表
   - 不生成投资建议
 """
 
 from datetime import datetime
 from typing import Any, Dict, List
+from tabulate import tabulate
 
-from .index import get_csrc_industry_pe_snapshot, get_index_details
+from .index import VALUATION_LEVELS, get_csrc_industry_pe_snapshot
+import logging
 
-# 证监会行业映射（主要行业）
+logger = logging.getLogger(__name__)
+
+# 证监会行业映射（用于独立快照报表）
 CSRC_INDUSTRY_MAP = {
     "农、林、牧、渔业": "农业",
     "采矿业": "资源",
@@ -36,7 +40,7 @@ CSRC_INDUSTRY_MAP = {
     "综合": "综合",
 }
 
-KEY_INDUSTRIES = {
+CSRC_DISPLAY_MAP = {
     "煤炭开采和洗选业": ("煤炭", "资源"),
     "石油和天然气开采业": ("油气", "资源"),
     "黑色金属矿采选业": ("钢铁", "资源"),
@@ -70,20 +74,155 @@ BROAD_INDEX_MAP = {
     "399330": ("深证100", "宽基"),
 }
 
-VALUATION_ORDER = {"低": 1, "中": 2, "高": 3, "极高": 4, "未知": 5}
+INDUSTRY_INDEX_MAP = {
+    # 金融
+    "932133": ("银行行业", "金融"),
+    "932135": ("资本市场行业", "金融"),
+    "932136": ("保险行业", "金融"),
+
+    # 周期资源
+    "932077": ("全指能源行业", "能源"),
+    "932078": ("全指材料行业", "材料"),
+    "932112": ("有色金属行业", "资源"),
+    "932113": ("钢铁行业", "资源"),
+
+    # 工业制造
+    "932079": ("全指工业行业", "工业"),
+    "932118": ("电力设备行业", "制造"),
+    "932119": ("机械制造行业", "制造"),
+    "932123": ("汽车汽配行业", "制造"),
+
+    # 消费
+    "932080": ("全指可选行业", "可选消费"),
+    "932081": ("全指消费行业", "主要消费"),
+    "932127": ("零售行业", "消费"),
+    "932128": ("食品饮料烟草行业", "消费"),
+    "932130": ("家庭用品行业", "消费"),
+
+    # 医药
+    "932131": ("医疗行业", "医疗"),
+    "932132": ("医药行业", "医药"),
+
+    # 科技通信
+    "932084": ("全指信息行业", "科技"),
+    "932085": ("全指通信行业", "通信"),
+    "932138": ("电子行业", "科技"),
+    "932139": ("半导体行业", "科技"),
+
+    # 防御 / 公用
+    "932086": ("全指公用行业", "公用事业"),
+    "931897": ("绿色电力", "电力"),
+
+    # 地产链
+    "932076": ("全指地产", "地产"),
+    "932117": ("建筑装饰行业", "建筑"),
+
+    # 其他重要观察
+    "932142": ("传媒行业", "传媒"),
+    "932116": ("航空航天与国防行业", "军工"),
+    "932122": ("交通运输行业", "交通运输"),
+    "932120": ("环保行业", "环保"),
+}
+
+# 用于热力图排序，顺序直接复用 index.py 的估值等级定义，避免两边分叉。
+VALUATION_ORDER = {
+    desc: order
+    for order, desc in enumerate(VALUATION_LEVELS.values(), start=1)
+}
+VALUATION_ORDER.update({
+    "未知": 99,
+    "N/A": 99,
+})
 
 
 def _valuation_bucket(pe_value: Any) -> str:
+    """
+    根据绝对值判断估值等级（仅用于证监会行业快照）
+
+    注意：这是基于绝对值的简单分档，与指数的历史分位等级不同。
+    指数的估值等级基于历史分位数（更准确），行业快照基于绝对值（仅供参考）。
+    """
     pe = float(pe_value) if pe_value is not None else None
     if pe is None:
         return "未知"
+    # 行业快照只有静态 PE，没有完整历史分位，这里只能做绝对值分档。
+    if pe < 10:
+        return "极度低估 🥶*"
     if pe < 15:
-        return "低"
-    if pe < 25:
-        return "中"
+        return "低估 🟢*"
+    if pe < 20:
+        return "偏低 🟡*"
+    if pe < 30:
+        return "合理 🟠*"
     if pe < 40:
-        return "高"
-    return "极高"
+        return "偏高 🔴*"
+    if pe < 60:
+        return "高估 🔥*"
+    return "极度高估 🚨*"
+
+
+def _build_valuation_summary(rows: List[Dict[str, Any]], field: str) -> Dict[str, int]:
+    return {
+        "极度低估": sum(1 for item in rows if item.get(field) == "极度低估 🥶"),
+        "低估": sum(1 for item in rows if item.get(field) == "低估 🟢"),
+        "偏低": sum(1 for item in rows if item.get(field) == "偏低 🟡"),
+        "合理": sum(1 for item in rows if item.get(field) == "合理 🟠"),
+        "合理偏上": sum(1 for item in rows if item.get(field) == "合理偏上 🟠"),
+        "偏高": sum(1 for item in rows if item.get(field) == "偏高 🔴"),
+        "高估": sum(1 for item in rows if item.get(field) == "高估 🔥"),
+        "极度高估": sum(1 for item in rows if item.get(field) == "极度高估 🚨"),
+        "未知": sum(1 for item in rows if item.get(field) in ("未知", "N/A", None)),
+    }
+
+
+def _normalize_valuation_level(value: Any) -> str:
+    if value in (None, "N/A"):
+        return "未知"
+    return str(value)
+
+
+def _build_index_rows(index_map: Dict[str, Any], source_type: str) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    from .index import get_index_valuation
+    import time
+
+    for code, (expected_name, category) in index_map.items():
+        logging.debug(f"正在获取 {expected_name} ({code}) 的估值数据...")
+        details = get_index_valuation(code, include_dividend=False)  # heatmap 不需要股息率，跳过慢速接口
+        time.sleep(10)
+        # 只在获取失败时延迟，避免频繁失败导致限流
+        if details.get("估值数据源") == "无" or details.get("PE_TTM") is None:
+            time.sleep(0.3)
+        if details.get("status") == "error":
+            continue
+
+        rows.append(
+            {
+                "代码": code,
+                "内部标识": code,
+                "名称": details.get("名称", expected_name),
+                "分类": category,
+                "日期": None,
+                "收盘点位": None,
+                "PE": details.get("PE_TTM"),
+                "PB": details.get("PB"),
+                "股息率": details.get("股息率1") or details.get("股息率2"),
+                "PE估值温度": _normalize_valuation_level(
+                    details.get("PE估值等级") or details.get("估值等级_PE") or details.get("估值等级")
+                ),
+                "PB估值温度": _normalize_valuation_level(
+                    details.get("PB估值等级") or details.get("估值等级_PB")
+                ),
+                "估值温度": _normalize_valuation_level(
+                    details.get("PE估值等级") or details.get("估值等级_PE") or details.get("估值等级")
+                ),
+                "估值依据": "分位数" if details.get("PE估值等级") else "未知",
+                "数据源": details.get("估值数据源", "未知"),
+                "类型": source_type,
+            }
+        )
+
+    return rows
 
 
 def _build_csrc_rows() -> List[Dict[str, Any]]:
@@ -93,8 +232,8 @@ def _build_csrc_rows() -> List[Dict[str, Any]]:
         if not raw_name:
             continue
 
-        if raw_name in KEY_INDUSTRIES:
-            display_name, category = KEY_INDUSTRIES[raw_name]
+        if raw_name in CSRC_DISPLAY_MAP:
+            display_name, category = CSRC_DISPLAY_MAP[raw_name]
         else:
             display_name = raw_name
             category = CSRC_INDUSTRY_MAP.get(raw_name, "其他")
@@ -102,7 +241,8 @@ def _build_csrc_rows() -> List[Dict[str, Any]]:
         pe_value = item.get("静态PE")
         rows.append(
             {
-                "代码": f"CSRC::{raw_name}",
+                "代码": "",
+                "内部标识": f"CSRC::{raw_name}",
                 "名称": display_name,
                 "分类": category,
                 "日期": item.get("日期"),
@@ -110,34 +250,12 @@ def _build_csrc_rows() -> List[Dict[str, Any]]:
                 "PE": pe_value,
                 "PB": None,
                 "股息率": None,
+                "PE估值温度": _valuation_bucket(pe_value),
+                "PB估值温度": "未知",
                 "估值温度": _valuation_bucket(pe_value),
                 "数据源": item.get("数据源", "证监会行业"),
-            }
-        )
-
-    return rows
-
-
-def _build_broad_index_rows() -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
-    for code, (expected_name, category) in BROAD_INDEX_MAP.items():
-        details = get_index_details(code)
-        if details.get("status") == "error":
-            continue
-
-        pe_value = details.get("PE_TTM")
-        rows.append(
-            {
-                "代码": code,
-                "名称": details.get("名称", expected_name),
-                "分类": category,
-                "日期": details.get("日期"),
-                "收盘点位": details.get("收盘点位"),
-                "PE": pe_value,
-                "PB": details.get("PB"),
-                "股息率": details.get("股息率1") or details.get("股息率2"),
-                "估值温度": details.get("估值等级") if details.get("估值等级") not in (None, "N/A") else _valuation_bucket(pe_value),
-                "数据源": details.get("估值数据源", "未知"),
+                "估值依据": "绝对值",
+                "类型": "csrc",
             }
         )
 
@@ -146,13 +264,16 @@ def _build_broad_index_rows() -> List[Dict[str, Any]]:
 
 def get_industry_valuation_matrix() -> Dict[str, Any]:
     """
-    获取行业与宽基估值矩阵
+    获取行业指数与宽基指数估值矩阵
     """
-    rows = _build_csrc_rows() + _build_broad_index_rows()
+    rows = _build_index_rows(INDUSTRY_INDEX_MAP, source_type="industry") + _build_index_rows(
+        BROAD_INDEX_MAP,
+        source_type="broad",
+    )
     deduped: List[Dict[str, Any]] = []
     seen = set()
     for item in rows:
-        key = (item.get("代码"), item.get("名称"))
+        key = item.get("内部标识") or (item.get("代码"), item.get("名称"))
         if key in seen:
             continue
         seen.add(key)
@@ -162,6 +283,15 @@ def get_industry_valuation_matrix() -> Dict[str, Any]:
         "timestamp": datetime.now().isoformat(),
         "total": len(deduped),
         "data": deduped,
+    }
+
+
+def get_csrc_valuation_matrix() -> Dict[str, Any]:
+    rows = _build_csrc_rows()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "total": len(rows),
+        "data": rows,
     }
 
 
@@ -180,27 +310,56 @@ def get_valuation_heatmap(category: str = "全部", sort_by: str = "pe") -> Dict
     elif sort_by == "dividend":
         rows.sort(key=lambda x: x.get("股息率") if x.get("股息率") is not None else -float("inf"), reverse=True)
     elif sort_by == "valuation":
-        rows.sort(key=lambda x: VALUATION_ORDER.get(str(x.get("估值温度")), 99))
+        rows.sort(key=lambda x: VALUATION_ORDER.get(str(x.get("PE估值温度")), 99))
     elif sort_by == "category":
         rows.sort(key=lambda x: (str(x.get("分类", "")), str(x.get("名称", ""))))
     else:
         sort_by = "pe"
         rows.sort(key=lambda x: x.get("PE") if x.get("PE") is not None else float("inf"))
 
-    summary = {
-        "低": sum(1 for item in rows if item.get("估值温度") == "低"),
-        "中": sum(1 for item in rows if item.get("估值温度") == "中"),
-        "高": sum(1 for item in rows if item.get("估值温度") == "高"),
-        "极高": sum(1 for item in rows if item.get("估值温度") == "极高"),
-        "未知": sum(1 for item in rows if item.get("估值温度") == "未知"),
-    }
+    summary_pe = _build_valuation_summary(rows, "PE估值温度")
+    summary_pb = _build_valuation_summary(rows, "PB估值温度")
 
     return {
         "timestamp": matrix["timestamp"],
         "total": len(rows),
         "sort_by": sort_by,
         "category": category,
-        "summary": summary,
+        "title": "指数估值热力图",
+        "summary": summary_pe,
+        "summary_pe": summary_pe,
+        "summary_pb": summary_pb,
+        "data": rows,
+    }
+
+
+def get_csrc_valuation_heatmap(category: str = "全部", sort_by: str = "pe") -> Dict[str, Any]:
+    matrix = get_csrc_valuation_matrix()
+    rows = list(matrix["data"])
+
+    if category != "全部":
+        rows = [item for item in rows if item.get("分类") == category]
+
+    if sort_by == "category":
+        rows.sort(key=lambda x: (str(x.get("分类", "")), str(x.get("名称", ""))))
+    elif sort_by == "valuation":
+        rows.sort(key=lambda x: VALUATION_ORDER.get(str(x.get("PE估值温度")), 99))
+    else:
+        sort_by = "pe"
+        rows.sort(key=lambda x: x.get("PE") if x.get("PE") is not None else float("inf"))
+
+    summary_pe = _build_valuation_summary(rows, "PE估值温度")
+    summary_pb = _build_valuation_summary(rows, "PB估值温度")
+
+    return {
+        "timestamp": matrix["timestamp"],
+        "total": len(rows),
+        "sort_by": sort_by,
+        "category": category,
+        "title": "证监会行业静态PE热力图",
+        "summary": summary_pe,
+        "summary_pe": summary_pe,
+        "summary_pb": summary_pb,
         "data": rows,
     }
 
@@ -209,33 +368,59 @@ def format_heatmap_table(heatmap: Dict[str, Any], limit: int = 30) -> str:
     """
     格式化热力图表格输出
     """
-    lines = []
-    lines.append("=" * 92)
-    lines.append(f"指数估值热力图 | 分类: {heatmap['category']} | 排序: {heatmap['sort_by']}")
-    lines.append("=" * 92)
-    lines.append(f"{'名称':<16} {'分类':<10} {'PE':<8} {'PB':<8} {'股息率':<8} {'数据源':<12} {'估值':<12}")
-    lines.append("-" * 92)
+    def _fmt_number(value: Any) -> str:
+        if value is None:
+            return "N/A"
+        return f"{float(value):.2f}"
 
+    def _truncate_text(value: Any, max_chars: int = 18) -> str:
+        text = str(value or "")
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 3] + "..."
+
+    lines = []
+    title = heatmap.get("title", "指数估值热力图")
+    lines.append(f"{title} | 分类: {heatmap['category']} | 排序: {heatmap['sort_by']}")
+    table_rows = []
     for item in heatmap["data"][:limit]:
-        name = str(item.get("名称", ""))
-        if len(name) > 15:
-            name = name[:12] + "..."
-        pe = item.get("PE")
-        pb = item.get("PB")
-        dy = item.get("股息率")
-        lines.append(
-            f"{name:<16} "
-            f"{str(item.get('分类', '')):<10} "
-            f"{(f'{pe:.2f}' if pe is not None else 'N/A'):<8} "
-            f"{(f'{pb:.2f}' if pb is not None else 'N/A'):<8} "
-            f"{(f'{dy:.2f}' if dy is not None else 'N/A'):<8} "
-            f"{str(item.get('数据源', '')):<12} "
-            f"{str(item.get('估值温度', '')):<12}"
+        table_rows.append(
+            [
+                str(item.get("代码", "")),
+                _truncate_text(item.get("名称", ""), max_chars=18),
+                str(item.get("分类", "")),
+                _fmt_number(item.get("PE")),
+                _fmt_number(item.get("PB")),
+                _fmt_number(item.get("股息率")),
+                str(item.get("数据源", "")),
+                str(item.get("PE估值温度", "")),
+                str(item.get("PB估值温度", "")),
+                str(item.get("估值依据", "")),
+            ]
         )
 
-    lines.append("-" * 92)
     lines.append(
-        f"共 {heatmap['total']} 条 | 低 {heatmap['summary']['低']} | 中 {heatmap['summary']['中']} "
-        f"| 高 {heatmap['summary']['高']} | 极高 {heatmap['summary']['极高']} | 未知 {heatmap['summary']['未知']}"
+        tabulate(
+            table_rows,
+            headers=["代码", "名称", "分类", "PE", "PB", "股息率", "数据源", "PE估值", "PB估值", "估值依据"],
+            tablefmt="simple",
+            disable_numparse=True,
+        )
+    )
+
+    summary_pe = heatmap["summary_pe"]
+    summary_pb = heatmap["summary_pb"]
+
+    lines.append(
+        f"PE口径: 共 {heatmap['total']} 条 | 低估 {summary_pe.get('极度低估', 0) + summary_pe.get('低估', 0)} "
+        f"| 合理 {summary_pe.get('偏低', 0) + summary_pe.get('合理', 0) + summary_pe.get('合理偏上', 0)} "
+        f"| 高估 {summary_pe.get('偏高', 0) + summary_pe.get('高估', 0) + summary_pe.get('极度高估', 0)} "
+        f"| 未知 {summary_pe.get('未知', 0)}"
+    )
+    lines.append(
+        f"PB口径: 共 {heatmap['total']} 条 | 低估 {summary_pb.get('极度低估', 0) + summary_pb.get('低估', 0)} "
+        f"| 合理 {summary_pb.get('偏低', 0) + summary_pb.get('合理', 0) + summary_pb.get('合理偏上', 0)} "
+        f"| 高估 {summary_pb.get('偏高', 0) + summary_pb.get('高估', 0) + summary_pb.get('极度高估', 0)} "
+        f"| 未知 {summary_pb.get('未知', 0)}"
     )
     return "\n".join(lines)

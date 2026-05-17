@@ -1,0 +1,6 @@
+python cli.py index heatmap --limit 115
+399330  深证100       宽基    N/A     N/A   N/A       无        未知         未知
+
+python cli.py index query 399330 -d
+PE-TTM:  当前 24.12 | 中位数 21.26 | 最低 13.76 | 最高 35.06
+PB:  当前 3.15 | 中位数 2.93 | 最低 1.94 | 最高 5.02

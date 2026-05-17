@@ -5,6 +5,7 @@ Tests for multi-source index cache aggregation.
 
 import os
 import sys
+from http.client import RemoteDisconnected
 
 import pandas as pd
 
@@ -15,6 +16,15 @@ from src.fund_tools import cache, index
 
 
 class TestIndexCacheMultiSource:
+    def _mock_empty_history_sources(self, monkeypatch):
+        monkeypatch.setattr(index.ak, "stock_zh_index_daily", lambda symbol: pd.DataFrame())
+        monkeypatch.setattr(index.ak, "stock_zh_index_daily_tx", lambda symbol: pd.DataFrame())
+        monkeypatch.setattr(
+            index.ak,
+            "stock_zh_index_daily_em",
+            lambda symbol, start_date, end_date: pd.DataFrame(),
+        )
+
     def test_fetch_index_spot_sources_adds_common_missing_indices(self, monkeypatch):
         monkeypatch.setattr(
             cache.ak,
@@ -127,6 +137,8 @@ class TestIndexCacheMultiSource:
         assert codes == {"000300", "399001"}
 
     def test_fetch_index_history_data_falls_back_to_eastmoney(self, monkeypatch):
+        self._mock_empty_history_sources(monkeypatch)
+
         def _raise_csindex(*args, **kwargs):
             raise ValueError("csindex unavailable")
 
@@ -150,8 +162,132 @@ class TestIndexCacheMultiSource:
             ),
         )
 
-        df = index._fetch_index_history_data("399673")
+        df = index.fetch_index_history_data("399673")
 
         assert len(df) == 2
         assert str(df.iloc[-1]["日期"].date()) == "2026-04-27"
         assert df.iloc[-1]["收盘"] == 3885.42
+
+    def test_fetch_index_history_data_retries_eastmoney(self, monkeypatch):
+        self._mock_empty_history_sources(monkeypatch)
+
+        def _raise_csindex(*args, **kwargs):
+            raise ValueError("csindex unavailable")
+
+        calls = {"count": 0}
+
+        def _eastmoney_retry(**kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise ConnectionAbortedError(RemoteDisconnected("Remote end closed connection without response"))
+            return pd.DataFrame(
+                [
+                    {
+                        "日期": "2026-04-28",
+                        "收盘": 2500.0,
+                        "涨跌幅": 0.5,
+                    }
+                ]
+            )
+
+        monkeypatch.setattr(index.ak, "stock_zh_index_hist_csindex", _raise_csindex)
+        monkeypatch.setattr(index.ak, "index_zh_a_hist", _eastmoney_retry)
+
+        df = index.fetch_index_history_data("000016")
+
+        assert calls["count"] == 2
+        assert len(df) == 1
+        assert str(df.iloc[-1]["日期"].date()) == "2026-04-28"
+
+    def test_fetch_index_history_data_does_not_retry_non_retryable_csindex_error(self, monkeypatch):
+        self._mock_empty_history_sources(monkeypatch)
+
+        csindex_calls = {"count": 0}
+
+        def _bad_csindex(*args, **kwargs):
+            csindex_calls["count"] += 1
+            raise ValueError("Length mismatch: Expected axis has 0 elements, new values have 16 elements")
+
+        monkeypatch.setattr(index.ak, "stock_zh_index_hist_csindex", _bad_csindex)
+        monkeypatch.setattr(
+            index.ak,
+            "index_zh_a_hist",
+            lambda **kwargs: pd.DataFrame(
+                [
+                    {
+                        "日期": "2026-04-29",
+                        "收盘": 1234.5,
+                        "涨跌幅": 0.8,
+                    }
+                ]
+            ),
+        )
+
+        df = index.fetch_index_history_data("399439")
+
+        assert csindex_calls["count"] == 1
+        assert len(df) == 1
+        assert str(df.iloc[-1]["日期"].date()) == "2026-04-29"
+
+    def test_fetch_index_history_data_uses_first_successful_source_in_order(self, monkeypatch):
+        calls = []
+
+        def _sina(symbol):
+            calls.append(f"sina:{symbol}")
+            return pd.DataFrame(
+                [
+                    {
+                        "date": "2026-04-28",
+                        "open": 10,
+                        "close": 11,
+                        "high": 12,
+                        "low": 9,
+                        "volume": 100,
+                    }
+                ]
+            )
+
+        monkeypatch.setattr(index.ak, "stock_zh_index_daily", _sina)
+        monkeypatch.setattr(index.ak, "stock_zh_index_daily_tx", lambda symbol: (_ for _ in ()).throw(AssertionError("should not call tx")))
+        monkeypatch.setattr(index.ak, "stock_zh_index_daily_em", lambda symbol, start_date, end_date: (_ for _ in ()).throw(AssertionError("should not call em")))
+        monkeypatch.setattr(index.ak, "stock_zh_index_hist_csindex", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not call csindex")))
+        monkeypatch.setattr(index.ak, "index_zh_a_hist", lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not call eastmoney hist")))
+
+        df = index.fetch_index_history_data("399439")
+
+        assert calls == ["sina:sz399439"]
+        assert len(df) == 1
+        assert str(df.iloc[-1]["日期"].date()) == "2026-04-28"
+        assert df.iloc[-1]["收盘"] == 11
+        assert round(float(df.iloc[-1]["涨跌幅"]), 2) == 10.0
+
+    def test_fetch_index_history_data_passes_start_and_end_date(self, monkeypatch):
+        self._mock_empty_history_sources(monkeypatch)
+
+        csindex_calls = {}
+
+        def _capture_csindex(symbol, start_date, end_date):
+            csindex_calls["symbol"] = symbol
+            csindex_calls["start_date"] = start_date
+            csindex_calls["end_date"] = end_date
+            return pd.DataFrame(
+                [
+                    {
+                        "日期": "2026-03-28",
+                        "收盘": 2000.0,
+                        "涨跌幅": 0.2,
+                    }
+                ]
+            )
+
+        monkeypatch.setattr(index.ak, "stock_zh_index_hist_csindex", _capture_csindex)
+        monkeypatch.setattr(index.ak, "index_zh_a_hist", lambda **kwargs: pd.DataFrame())
+
+        df = index.fetch_index_history_data("399439", start_date="20220101", end_date="20260401")
+
+        assert csindex_calls == {
+            "symbol": "399439",
+            "start_date": "20220101",
+            "end_date": "20260401",
+        }
+        assert len(df) == 1
