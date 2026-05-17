@@ -19,4 +19,5 @@ from . import performance   # noqa: F401
 from . import risk          # noqa: F401
 from . import top_holdings  # noqa: F401
 from . import portfolio     # noqa: F401
+from . import recent        # noqa: F401
 from . import update        # noqa: F401

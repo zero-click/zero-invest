@@ -1613,3 +1613,87 @@ def get_index_info_by_code(code: str) -> Dict:
     """
     all_indices = get_all_stock_indices()
     return get_index_info(all_indices, code)
+
+
+def get_index_recent_performance(code: str, days: int = 30) -> Dict[str, Any]:
+    """
+    获取指数最近 N 天的行情走势
+
+    Args:
+        code: 指数代码
+        days: 查询天数（默认30天）
+
+    Returns:
+        包含最近N天行情数据的字典
+    """
+    if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
+        return {"status": "error", "message": f"无效的指数代码格式: '{code}'"}
+
+    if days <= 0 or days > 365:
+        return {"status": "error", "message": f"天数必须在 1-365 之间，当前: {days}"}
+
+    try:
+        logger.info(f"正在查询指数 {code} 最近 {days} 天的行情走势...")
+
+        # 计算日期范围
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        # 优先使用中证指数历史行情（如果代码是中证指数）
+        df = None
+        try:
+            df = ak.stock_zh_index_hist_csindex(
+                symbol=code,
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d")
+            )
+        except Exception as e:
+            logger.debug(f"中证指数历史行情失败: {e}")
+
+        # 如果中证失败，使用东方财富
+        if df is None or df.empty:
+            try:
+                _clear_proxy_env()
+                df = ak.index_zh_a_hist(
+                    symbol=code,
+                    period="daily",
+                    start_date=start_date.strftime("%Y%m%d"),
+                    end_date=end_date.strftime("%Y%m%d")
+                )
+            except Exception as e:
+                logger.error(f"获取指数历史行情失败: {e}")
+                return {"status": "error", "message": f"获取失败: {str(e)}"}
+
+        if df.empty:
+            return {"status": "error", "message": f"未找到指数 {code} 的历史数据"}
+
+        # 取最近 days 天的数据
+        df_recent = df.tail(days)  # 通常数据是按时间正序的
+
+        # 计算收益率
+        if len(df_recent) > 0:
+            if '收盘' in df_recent.columns:
+                first_close = df_recent.iloc[0]['收盘']
+                latest_close = df_recent.iloc[-1]['收盘']
+
+                if pd.notna(first_close) and pd.notna(latest_close) and first_close != 0:
+                    total_return = (latest_close - first_close) / first_close * 100
+                else:
+                    total_return = 0
+            else:
+                total_return = 0
+        else:
+            total_return = 0
+
+        return {
+            "status": "success",
+            "code": code,
+            "days": days,
+            "total_return": round(total_return, 2),
+            "data_count": len(df_recent),
+            "data": df_recent.to_dict('records')
+        }
+
+    except Exception as e:
+        logger.error(f"获取指数最近收益失败 {code}: {e}")
+        return {"status": "error", "message": f"获取失败: {str(e)}"}

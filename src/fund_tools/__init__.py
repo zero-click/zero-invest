@@ -29,6 +29,7 @@ from .core import (
     get_fund_liquidity_info,
     get_fund_market_metrics,
     get_index_candidate_funds,
+    get_fund_recent_performance,
 )
 from . import index
 from .industry_valuation import (
@@ -68,6 +69,7 @@ from .index import (
     get_index_details,
     get_index_details_batch,
     get_index_risk,
+    get_index_recent_performance,
     get_csrc_industry_pe_snapshot,
     # 便捷函数
     get_broad_indices,
@@ -120,6 +122,7 @@ __all__ = [
     "get_fund_liquidity_info",
     "get_fund_market_metrics",
     "get_index_candidate_funds",
+    "get_fund_recent_performance",
     # Valuation
     "LG_INDEX_MAP",
     # Index module
@@ -141,6 +144,7 @@ __all__ = [
     "get_index_details",
     "get_index_details_batch",
     "get_index_risk",
+    "get_index_recent_performance",
     "get_csrc_industry_pe_snapshot",
     "get_industry_valuation_matrix",
     "get_csrc_valuation_matrix",

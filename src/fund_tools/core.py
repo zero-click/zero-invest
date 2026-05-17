@@ -1048,3 +1048,60 @@ def get_fund_liquidity_info(code: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"获取流动性信息失败 {code}: {e}")
         return {"status": "error", "message": f"获取失败: {str(e)}"}
+
+
+def get_fund_recent_performance(code: str, days: int = 30) -> Dict[str, Any]:
+    """
+    获取基金最近 N 天的净值走势
+
+    Args:
+        code: 基金代码
+        days: 查询天数（默认30天）
+
+    Returns:
+        包含最近N天净值数据的字典
+    """
+    if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
+        return {"status": "error", "message": f"无效的基金代码格式: '{code}'"}
+
+    if days <= 0 or days > 365:
+        return {"status": "error", "message": f"天数必须在 1-365 之间，当前: {days}"}
+
+    try:
+        logger.info(f"正在查询基金 {code} 最近 {days} 天的净值走势...")
+
+        # akshare 的 fund_open_fund_info_em 只支持固定周期
+        # 我们使用 "单位净值走势" 指标
+        df = ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势", period="成立来")
+
+        if df.empty:
+            return {"status": "error", "message": f"未找到基金 {code} 的净值数据"}
+
+        # 数据通常包含：净值日期, 单位净值, 累计净值, 日增长率
+        # akshare 返回的数据是按日期倒序的（最新在前），所以用 tail 取最近的
+        df_recent = df.tail(days)
+
+        # 计算收益率
+        if len(df_recent) > 0 and '单位净值' in df_recent.columns:
+            first_nav = df_recent.iloc[0]['单位净值']
+            latest_nav = df_recent.iloc[-1]['单位净值']
+
+            if pd.notna(first_nav) and pd.notna(latest_nav) and first_nav != 0:
+                total_return = (latest_nav - first_nav) / first_nav * 100
+            else:
+                total_return = 0
+        else:
+            total_return = 0
+
+        return {
+            "status": "success",
+            "code": code,
+            "days": days,
+            "total_return": round(total_return, 2),
+            "data_count": len(df_recent),
+            "data": df_recent.to_dict('records')
+        }
+
+    except Exception as e:
+        logger.error(f"获取基金最近收益失败 {code}: {e}")
+        return {"status": "error", "message": f"获取失败: {str(e)}"}

@@ -4,7 +4,14 @@
       "Bash(rtk pytest:*)",
       "Bash(rtk git diff:*)",
       "Bash(python:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(rtk git:*)",
+      "Bash(source:*)",
+      "Bash(rtk pip install:*)",
+      "Bash(rtk read:*)",
+      "Bash(rtk pip list:*)",
+      "Bash(rtk grep:*)",
+      "Bash(rtk:*)"
     ]
   }
 }
