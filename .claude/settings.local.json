@@ -11,7 +11,10 @@
       "Bash(rtk read:*)",
       "Bash(rtk pip list:*)",
       "Bash(rtk grep:*)",
-      "Bash(rtk:*)"
+      "Bash(rtk:*)",
+      "Bash(git ls-tree *)",
+      "Bash(git rm *)",
+      "Bash(git filter-branch --force --index-filter ' *)"
     ]
   }
 }
