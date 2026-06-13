@@ -1,8 +1,8 @@
-# ttjj-fund 项目文档
+# zero-invest 项目文档
 
 ## 项目概述
 
-**ttjj-fund** 是基于 **akshare** 的中国公募基金、A 股指数与个股数据查询服务，可作为独立 CLI 工具使用。
+**zero-invest** 是基于 **akshare** 的中国公募基金、A 股指数与个股数据查询服务，可作为独立 CLI 工具使用。
 
 **核心能力：**
 - 通过一个命令获取单只基金的完整分析报告（基本信息、业绩、风险、持仓、费用、评级等 11 个维度）
@@ -20,7 +20,7 @@
 ## 项目结构
 
 ```
-ttjj-fund/
+zero-invest/
 ├── cli.py                       # CLI 入口（命令行接口）
 ├── requirements.txt
 ├── README.md                    # 用户文档

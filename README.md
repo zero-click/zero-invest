@@ -1,4 +1,4 @@
-# ttjj-fund
+# zero-invest
 
 中国公募基金与 A 股指数信息查询工具，基于 `akshare` 数据源。项目提供命令行 CLI 工具，适合做基金研究、指数估值查询、候选指数基金筛选和本地数据缓存。
 
@@ -191,7 +191,7 @@ pytest -q tests/test_industry_heatmap.py -m integration
 ## 项目结构
 
 ```text
-ttjj-fund/
+zero-invest/
 ├── cli.py                         # CLI 入口
 ├── requirements.txt               # Python 依赖
 ├── src/fund_tools/

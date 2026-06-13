@@ -4,8 +4,8 @@
 import typer
 
 app = typer.Typer(
-    name="ttjj-fund",
-    help="中国基金和指数信息查询工具 v2.3",
+    name="zero-invest",
+    help="中国公募基金、指数与个股信息查询工具 v2.3",
     no_args_is_help=True,
 )
 
