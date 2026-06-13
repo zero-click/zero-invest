@@ -159,3 +159,4 @@ fund_database.json
 index_database.json
 hk_fund_database.json
 *~
+.claude/settings.local.json
