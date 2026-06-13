@@ -16,7 +16,6 @@ from . import scenario_c    # noqa: F401
 from . import classify      # noqa: F401
 from . import checklist     # noqa: F401
 from . import drawdown      # noqa: F401
-from . import check_logic   # noqa: F401
 from . import exit_eval     # noqa: F401
 from . import update        # noqa: F401
 from . import cache         # noqa: F401
