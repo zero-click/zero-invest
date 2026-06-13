@@ -118,6 +118,49 @@ python cli.py index heatmap --category 宽基 --sort-by pe --limit 30
 python cli.py index heatmap --CSRC
 ```
 
+### 个股命令
+
+```bash
+# 搜索股票
+python cli.py stock search "平安"
+python cli.py stock search "贵州"
+
+# 查询股票基本信息
+python cli.py stock query 600519
+
+# 查询历史K线/区间涨跌
+python cli.py stock hist 600519
+
+# 估值概览（PE/PB/PS/EV）
+python cli.py stock valuation 600519
+
+# 场景分析
+python cli.py stock scenario-a 600519  # 稳定成长型：Forward PE / PEG
+python cli.py stock scenario-b 600519  # 成长/亏损型：PS + FCF反算
+python cli.py stock scenario-c 600519  # 强周期型：DOI/EV/EBITDA/PB
+
+# 股票类型预分类
+python cli.py stock classify 600519
+
+# 个股准入完整检查（附录A流水表）
+python cli.py stock checklist 600519
+
+# 回撤分析
+python cli.py stock drawdown 600519
+
+# 持仓状态检查
+python cli.py stock status 600519
+
+# 逻辑破坏检查
+python cli.py stock check-logic 600519
+
+# 退出评估
+python cli.py stock exit-eval 600519
+
+# 查看缓存状态
+python cli.py stock cache
+```
+
 ### Debug 模式
 
 ```bash
