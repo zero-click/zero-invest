@@ -401,7 +401,7 @@ def search_funds(keyword: str) -> Dict[str, Any]:
             df['基金简称'].str.contains(keyword, na=False) |
             df['拼音缩写'].str.contains(keyword, case=False, na=False)
         )
-        results = df[mask].head(50)
+        results = df[mask]
 
         return {
             "status": "success",
