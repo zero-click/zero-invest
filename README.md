@@ -1,4 +1,4 @@
-# ttjj-fund
+# zero-invest
 
 中国公募基金与 A 股指数信息查询工具，基于 `akshare` 数据源。项目提供命令行 CLI 工具，适合做基金研究、指数估值查询、候选指数基金筛选和本地数据缓存。
 
@@ -118,6 +118,43 @@ python cli.py index heatmap --category 宽基 --sort-by pe --limit 30
 python cli.py index heatmap --CSRC
 ```
 
+### 个股命令
+
+```bash
+# 搜索股票
+python cli.py stock search "平安"
+python cli.py stock search "贵州"
+
+# 查询股票基本信息
+python cli.py stock query 600519
+
+# 查询历史K线/区间涨跌
+python cli.py stock hist 600519
+
+# 估值概览（PE/PB/PS/EV）
+python cli.py stock valuation 600519
+
+# 场景分析
+python cli.py stock scenario-a 600519  # 稳定成长型：Forward PE / PEG
+python cli.py stock scenario-b 600519  # 成长/亏损型：PS + FCF反算
+python cli.py stock scenario-c 600519  # 强周期型：DOI/EV/EBITDA/PB
+
+# 股票类型查询（本工具不预测类型）
+python cli.py stock classify 600519
+
+# 个股准入检查（需指定类型）
+python cli.py stock checklist 600519 --type a  # a=稳定成长型, b=高速成长型, c=强周期型
+
+# 回撤分析
+python cli.py stock drawdown 600519
+
+# 退出评估
+python cli.py stock exit-eval 600519
+
+# 查看缓存状态
+python cli.py stock cache
+```
+
 ### Debug 模式
 
 ```bash
@@ -154,7 +191,7 @@ pytest -q tests/test_industry_heatmap.py -m integration
 ## 项目结构
 
 ```text
-ttjj-fund/
+zero-invest/
 ├── cli.py                         # CLI 入口
 ├── requirements.txt               # Python 依赖
 ├── src/fund_tools/

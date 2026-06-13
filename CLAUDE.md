@@ -1,12 +1,13 @@
-# ttjj-fund 项目文档
+# zero-invest 项目文档
 
 ## 项目概述
 
-**ttjj-fund** 是基于 **akshare** 的中国公募基金与 A 股指数数据查询服务，可作为独立 CLI 工具使用。
+**zero-invest** 是基于 **akshare** 的中国公募基金、A 股指数与个股数据查询服务，可作为独立 CLI 工具使用。
 
 **核心能力：**
 - 通过一个命令获取单只基金的完整分析报告（基本信息、业绩、风险、持仓、费用、评级等 11 个维度）
 - 管理 A 股指数数据库，查询指数基本面、估值、风险、候选基金池和估值热力图
+- **个股分析**：股票搜索、实时行情、历史K线、估值分析、场景分析（A/B/C）、股票分类、准入检查
 - **香港市场**：香港基金排行/搜索/历史净值，港股指数实时/历史行情（Sina 主 + EM 备）
 
 ## 技术栈
@@ -19,7 +20,7 @@
 ## 项目结构
 
 ```
-ttjj-fund/
+zero-invest/
 ├── cli.py                       # CLI 入口（命令行接口）
 ├── requirements.txt
 ├── README.md                    # 用户文档
@@ -30,6 +31,7 @@ ttjj-fund/
 │   ├── cache.py                 # 基金/指数/香港基金本地缓存
 │   ├── core.py                  # 基金核心函数
 │   ├── index.py                 # 指数查询、估值、风险、历史行情
+│   ├── stock.py                 # 个股：搜索、行情、历史、估值、场景分析
 │   ├── hk_fund.py               # 香港基金：排行、搜索、历史净值
 │   ├── hk_index.py              # 港股指数：实时行情、历史行情（Sina+EM fallback）
 │   ├── capital_flow.py          # 沪深港通资金流
@@ -201,6 +203,42 @@ python cli.py index heatmap --sort-by pb --limit 20
 
 # 批量查询
 python cli.py index batch 000300 000905 000852
+```
+
+### 个股命令说明
+
+```bash
+# 搜索股票
+python cli.py stock search "平安"
+
+# 查询股票基本信息（实时行情）
+python cli.py stock query 600519
+
+# 查询历史K线/区间涨跌
+python cli.py stock hist 600519
+
+# 估值概览（PE/PB/PS/EV）
+python cli.py stock valuation 600519
+
+# 场景分析
+python cli.py stock scenario-a 600519  # 稳定成长型：Forward PE / PEG
+python cli.py stock scenario-b 600519  # 成长/亏损型：PS + FCF反算
+python cli.py stock scenario-c 600519  # 强周期型：DOI/EV/EBITDA/PB
+
+# 股票类型查询（本工具不预测类型）
+python cli.py stock classify 600519
+
+# 个股准入检查（需指定类型）
+python cli.py stock checklist 600519 --type a  # a=稳定成长型, b=高速成长型, c=强周期型
+
+# 回撤分析
+python cli.py stock drawdown 600519
+
+# 退出评估
+python cli.py stock exit-eval 600519
+
+# 查看缓存状态
+python cli.py stock cache
 ```
 
 ## 代码规范
