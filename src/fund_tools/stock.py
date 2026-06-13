@@ -210,16 +210,29 @@ def analyze_scenario_a(code: str) -> dict:
 
 
 def _evaluate_scenario_a(peg: Optional[float], growth_rate: Optional[float]) -> str:
-    """场景A估值判断"""
+    """场景A估值判断（基于PEG）
+
+    PEG = PE / 营收增速
+    - PEG < 1: 增速相对估值被低估（可能便宜）
+    - PEG 1~2: 估值与增速基本匹配（正常区间）
+    - PEG > 2: 估值相对增速较高（市场给予高溢价，需增速持续加速支撑）
+
+    Args:
+        peg: PEG 比率
+        growth_rate: 营收增速（%）
+
+    Returns:
+        估值判断文本
+    """
     if peg is None or growth_rate is None:
         return "数据不足，无法判断"
 
     if peg < 1:
-        return "市场低估了增速（可能便宜）"
+        return "PEG < 1，市场低估了增速（可能便宜）"
     elif peg <= 2:
-        return "估值处于正常区间"
+        return "PEG 1-2，估值与增速基本匹配（正常区间）"
     else:
-        return "市场给予高溢价（需增速持续加速支撑）"
+        return "PEG > 2，估值相对增速较高（高溢价，需增速持续加速支撑）"
 
 
 def analyze_scenario_b(code: str) -> dict:
