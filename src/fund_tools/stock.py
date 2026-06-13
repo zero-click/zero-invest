@@ -302,49 +302,32 @@ def analyze_scenario_c(code: str) -> dict:
 
 
 def classify_stock(code: str) -> dict:
-    """股票类型预分类
+    """股票类型查询
+
+    本工具是数据脚本，不预测股票类型。
+    用户应根据公司基本面自行判断后选择场景分析。
 
     Args:
         code: 股票代码
 
     Returns:
-        {"status": "success", "type": "...", "reason": "..."}
+        {"status": "error", "message": "..."}
     """
-    # 简化分类逻辑
-    # 实际应该根据行业、财务特征等综合判断
-
-    spot = get_stock_spot(code)
-    if spot['status'] != 'success':
-        return spot
-
-    name = spot['data'].get('名称', '')
-
-    # 根据名称做简单分类（实际需要更复杂的逻辑）
-    if any(kw in name for kw in ['银行', '保险', '券商']):
-        return {
-            "status": "success",
-            "type": "稳定成长型",
-            "reason": "金融股，利润相对稳定"
-        }
-    elif any(kw in name for kw in ['水泥', '钢铁', '有色', '煤炭']):
-        return {
-            "status": "success",
-            "type": "强周期型",
-            "reason": "强周期行业，盈利随大宗商品价格波动"
-        }
-    else:
-        return {
-            "status": "success",
-            "type": "待分类",
-            "reason": "需要更多财务数据进行判断"
-        }
+    return {
+        "status": "error",
+        "message": "本工具是数据脚本，不预测股票类型。请根据公司基本面自行判断后选择场景分析："
+                 "\n  - scenario-a: 稳定成长型（Forward PE / PEG）"
+                 "\n  - scenario-b: 高速成长型（PS + FCF反算）"
+                 "\n  - scenario-c: 强周期型（DOI / EV/EBITDA / PB）"
+    }
 
 
-def get_stock_checklist(code: str) -> dict:
+def get_stock_checklist(code: str, stock_type: str = "a") -> dict:
     """个股准入完整检查（附录A流水表）
 
     Args:
         code: 股票代码
+        stock_type: 股票类型（a=稳定成长型, b=高速成长型, c=强周期型）
 
     Returns:
         完整检查数据
@@ -355,16 +338,26 @@ def get_stock_checklist(code: str) -> dict:
     # 获取场景分析
     stock_type = classify_result.get('type', '待分类')
 
-    if stock_type == "稳定成长型":
+    # 根据用户指定的类型选择场景分析
+    if stock_type == "a":
         analysis = analyze_scenario_a(code)
-    elif stock_type == "强周期型":
+        type_name = "稳定成长型（Forward PE / PEG）"
+    elif stock_type == "b":
+        analysis = analyze_scenario_b(code)
+        type_name = "高速成长型（PS + FCF反算）"
+    elif stock_type == "c":
         analysis = analyze_scenario_c(code)
+        type_name = "强周期型（DOI / EV/EBITDA / PB）"
     else:
-        analysis = {"status": "pending", "message": "请先完成股票分类"}
+        return {
+            "status": "error",
+            "message": f"无效的股票类型: {stock_type}，请使用 a/b/c"
+        }
 
     return {
         "status": "success",
         "code": code,
-        "classify": classify_result,
+        "stock_type": stock_type,
+        "type_name": type_name,
         "analysis": analysis,
     }

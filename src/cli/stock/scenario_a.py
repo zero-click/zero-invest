@@ -14,20 +14,11 @@ def scenario_a(
     """场景A分析（稳定成长型：Forward PE / PEG）"""
     print_banner()
 
-    from fund_tools.stock import analyze_scenario_a, classify_stock
-
-    # 先分类
-    classify_result = classify_stock(code)
-    stock_type = classify_result.get('type', '')
+    from fund_tools.stock import analyze_scenario_a
 
     typer.echo(f"📊 场景A分析：稳定成长型")
     typer.echo("")
     typer.echo("=" * 60)
-
-    typer.echo(f"  股票: {code}")
-    typer.echo(f"  类型判定: {stock_type}")
-    typer.echo(f"  判定依据: {classify_result.get('reason', '')}")
-    typer.echo("")
 
     result = analyze_scenario_a(code)
 
@@ -36,6 +27,9 @@ def scenario_a(
         raise typer.Exit(1)
 
     data = result['data']
+
+    typer.echo(f"  股票: {code} {data.get('股票名称', '')}")
+    typer.echo("")
 
     typer.echo("  📈 估值指标")
     typer.echo("  " + "-" * 60)

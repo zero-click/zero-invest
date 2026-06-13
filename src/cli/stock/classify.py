@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""股票分类命令"""
+"""股票分类查询命令"""
 
 import typer
 
@@ -11,36 +11,27 @@ from ..helpers import print_banner
 def classify(
     code: str = typer.Argument(..., help="股票代码"),
 ):
-    """股票类型预分类"""
+    """股票类型查询（本工具不预测类型）"""
     print_banner()
 
     from fund_tools.stock import classify_stock
 
+    typer.echo("=" * 60)
+    typer.echo("  🏷️  股票类型")
+    typer.echo("=" * 60)
+    typer.echo("")
+
     result = classify_stock(code)
 
-    if result['status'] == 'error':
-        typer.echo(f"  ❌ {result['message']}")
-        raise typer.Exit(1)
-
-    typer.echo("=" * 60)
-    typer.echo("  🏷️  股票类型预分类")
-    typer.echo("=" * 60)
-    typer.echo("")
+    # 总是显示提示信息（即使是 error 状态）
     typer.echo(f"  股票: {code}")
     typer.echo("")
-    typer.echo(f"  类型判定: {result['type']}")
+    typer.echo("  ⚠️  本工具是数据脚本，不预测股票类型。")
     typer.echo("")
-    typer.echo("  判定依据:")
-    typer.echo(f"  └─ {result['reason']}")
+    typer.echo("  请根据公司基本面自行判断后选择场景分析：")
+    typer.echo("    ├─ scenario-a  稳定成长型（Forward PE / PEG）")
+    typer.echo("    ├─ scenario-b  高速成长型（PS + FCF反算）")
+    typer.echo("    └─ scenario-c  强周期型（DOI / EV/EBITDA / PB）")
     typer.echo("")
 
-    type_map = {
-        "稳定成长型": "✅ 场景A（Forward PE / PEG 有效）",
-        "强周期型": "✅ 场景C（DOI/EV/EBITDA/PB）",
-        "生态垄断型": "⚠️  场景B + 垄断溢价检查",
-    }
-
-    hint = type_map.get(result['type'], "请手动判断适用场景")
-    typer.echo(f"  估值工具适配: {hint}")
-    typer.echo("")
     typer.echo("=" * 60)

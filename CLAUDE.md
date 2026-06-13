@@ -225,11 +225,11 @@ python cli.py stock scenario-a 600519  # 稳定成长型：Forward PE / PEG
 python cli.py stock scenario-b 600519  # 成长/亏损型：PS + FCF反算
 python cli.py stock scenario-c 600519  # 强周期型：DOI/EV/EBITDA/PB
 
-# 股票类型预分类
+# 股票类型查询（本工具不预测类型）
 python cli.py stock classify 600519
 
-# 个股准入完整检查（附录A流水表）
-python cli.py stock checklist 600519
+# 个股准入检查（需指定类型）
+python cli.py stock checklist 600519 --type a  # a=稳定成长型, b=高速成长型, c=强周期型
 
 # 回撤分析
 python cli.py stock drawdown 600519
