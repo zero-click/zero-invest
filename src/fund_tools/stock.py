@@ -358,7 +358,7 @@ def get_stock_balance_sheet(code: str) -> dict:
 def get_stock_profit_forecast(code: str) -> dict:
     """获取个股盈利预测（分析师一致预期）
 
-    注：该数据源可能不稳定，部分股票无预测数据
+    注：该数据源可能不稳定，部分股票无分析师覆盖
 
     Args:
         code: 股票代码
@@ -367,25 +367,21 @@ def get_stock_profit_forecast(code: str) -> dict:
         {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
     """
     try:
-        # 转换代码格式
-        if code.startswith('6'):
-            symbol = f"{code}.SH"
-        elif code.startswith('0') or code.startswith('3'):
-            symbol = f"{code}.SZ"
-        else:
-            symbol = code
+        # API用法：不传symbol参数，拉全量数据后按代码过滤
+        # symbol参数是行业板块名（如"白酒"），不是股票代码
+        df = ak.stock_profit_forecast_em()
 
-        df = ak.stock_profit_forecast_em(symbol=symbol)
+        if df is None or df.empty:
+            return {"status": "error", "message": "未获取到盈利预测数据（API返回空）"}
 
-        # API可能返回None或空数据
-        if df is None:
-            return {"status": "error", "message": f"未获取到 {code} 的盈利预测数据（该股票可能无分析师覆盖）"}
+        # 按股票代码过滤
+        row = df[df['代码'] == code]
 
-        if not hasattr(df, 'iloc') or df.empty:
-            return {"status": "error", "message": f"未获取到 {code} 的盈利预测数据（返回数据为空）"}
+        if row.empty:
+            return {"status": "error", "message": f"未找到 {code} 的盈利预测数据（该股票可能无分析师覆盖）"}
 
-        # 获取最新一期预测数据（第一行是最新的）
-        latest = df.iloc[0]
+        # 取第一行（同一代码可能有多年预测）
+        latest = row.iloc[0]
 
         return {
             "status": "success",
