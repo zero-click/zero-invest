@@ -48,30 +48,47 @@ def get_stock_spot(code: str) -> dict:
     Returns:
         {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
     """
-    try:
-        df = ak.stock_zh_a_spot_em()
-        stock = df[df['代码'] == code]
-        if stock.empty:
-            return {"status": "error", "message": f"未找到股票 {code}"}
+    # EM行情（push2）在部分网络下不可用，先试 EM，失败后换 Sina
+    for source, fn, code_col, prefix in [
+        ("em", ak.stock_zh_a_spot_em, '代码', ''),
+        ("sina", ak.stock_zh_a_spot, '代码', ''),
+    ]:
+        try:
+            df = fn()
+            # Sina 列名与 EM 一致（代码/名称/最新价等），但代码带 sh/sz 前缀
+            col = code_col if '代码' in df.columns else None
+            if col is None:
+                continue
+            if source == "sina":
+                # Sina 代码格式为 sh600519，需加前缀匹配
+                _prefix = 'sh' if code.startswith('6') else 'sz'
+                stock = df[df[col] == f'{_prefix}{code}']
+            else:
+                stock = df[df[col] == code]
 
-        row = stock.iloc[0]
-        return {
-            "status": "success",
-            "data": {
-                "代码": row['代码'],
-                "名称": row['名称'],
-                "最新价": row['最新价'],
-                "涨跌幅": row['涨跌幅'],
-                "涨跌额": row['涨跌额'],
-                "总市值": row['总市值'],
-                "流通市值": row['流通市值'],
-                "市盈率": row['市盈率-动态'],
-                "市净率": row['市净率'],
-                "换手率": row['换手率'],
+            if stock.empty:
+                continue
+
+            row = stock.iloc[0]
+            return {
+                "status": "success",
+                "data": {
+                    "代码": row.get('代码', code),
+                    "名称": row.get('名称', ''),
+                    "最新价": row.get('最新价'),
+                    "涨跌幅": row.get('涨跌幅'),
+                    "涨跌额": row.get('涨跌额'),
+                    "总市值": row.get('总市值'),
+                    "流通市值": row.get('流通市值'),
+                    "市盈率": row.get('市盈率-动态') or row.get('市盈率-动态市盈率'),
+                    "市净率": row.get('市净率'),
+                    "换手率": row.get('换手率'),
+                }
             }
-        }
-    except Exception as e:
-        return {"status": "error", "message": f"获取行情失败: {str(e)}"}
+        except Exception:
+            continue
+
+    return {"status": "error", "message": f"获取行情失败：EM 和 Sina 数据源均不可用"}
 
 
 def get_stock_hist(code: str, days: int = 250) -> dict:
