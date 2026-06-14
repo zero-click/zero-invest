@@ -26,10 +26,15 @@ def profit_forecast(
 
     data = result['data']
     typer.echo(f"  股票代码: {code}")
-    typer.echo(f"  预测年度: {data.get('预测年度', 'N/A')}")
-    typer.echo(f"  预测EPS: {data.get('预测EPS', 'N/A')} 元")
-    typer.echo(f"  预测净利润: {data.get('预测净利润', 'N/A')} 亿元")
-    typer.echo(f"  参与预测机构数: {data.get('机构数', 'N/A')} 家")
+    typer.echo(f"  机构覆盖数: {data.get('机构覆盖数', 'N/A')} 家")
+    buy = data.get('评级_买入', 0)
+    add = data.get('评级_增持', 0)
+    if buy or add:
+        typer.echo(f"  评级分布: 买入{int(buy) if buy else 0} / 增持{int(add) if add else 0}")
+    def _eps(val):
+        return f"{val:.2f}" if val is not None else "N/A"
+    eps = [data.get(y) for y in ('2025E_EPS', '2026E_EPS', '2027E_EPS', '2028E_EPS')]
+    typer.echo(f"  EPS预测: 2025E {_eps(eps[0])} / 2026E {_eps(eps[1])} / 2027E {_eps(eps[2])} / 2028E {_eps(eps[3])}")
 
 
 @forecast_app.command("share-change")
@@ -96,10 +101,16 @@ def all_forecast(
     if profit_result['status'] == 'success':
         typer.echo("【分析师预测】")
         data = profit_result['data']
-        typer.echo(f"  预测年度: {data.get('预测年度', 'N/A')}")
-        typer.echo(f"  预测EPS: {data.get('预测EPS', 'N/A')} 元")
-        typer.echo(f"  预测净利润: {data.get('预测净利润', 'N/A')} 亿元")
-        typer.echo(f"  参与机构数: {data.get('机构数', 'N/A')} 家")
+        typer.echo(f"  机构覆盖数: {data.get('机构覆盖数', 'N/A')} 家")
+        buy = data.get('评级_买入', 0)
+        add = data.get('评级_增持', 0)
+        if buy or add:
+            typer.echo(f"  评级分布: 买入{int(buy) if buy else 0} / 增持{int(add) if add else 0}")
+        def _eps(val):
+            return f"{val:.2f}" if val is not None else "N/A"
+        eps26 = data.get('2026E_EPS')
+        eps27 = data.get('2027E_EPS')
+        typer.echo(f"  EPS预测: 2026E {_eps(eps26)} / 2027E {_eps(eps27)}")
     else:
         typer.echo(f"  ❌ 分析师预测: {profit_result['message']}")
 
