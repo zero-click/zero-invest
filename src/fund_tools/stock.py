@@ -48,47 +48,102 @@ def get_stock_spot(code: str) -> dict:
     Returns:
         {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
     """
-    # EM行情（push2）在部分网络下不可用，先试 EM，失败后换 Sina
-    for source, fn, code_col, prefix in [
-        ("em", ak.stock_zh_a_spot_em, '代码', ''),
-        ("sina", ak.stock_zh_a_spot, '代码', ''),
-    ]:
+    import requests
+
+    result = None
+
+    # 1) 试 EM spot（全表快照，含 PE/PB，但 push2 CDN 在部分网络下不可用）
+    #    用短 timeout 避免 TCP 连接挂死
+    try:
+        import multiprocessing
+
+        def _try_em(out_dict):
+            try:
+                df = ak.stock_zh_a_spot_em()
+                stock = df[df['代码'] == code]
+                if not stock.empty:
+                    row = stock.iloc[0]
+                    out_dict['result'] = {
+                        "status": "success",
+                        "data": {
+                            "代码": row.get('代码', code),
+                            "名称": row.get('名称', ''),
+                            "最新价": row.get('最新价'),
+                            "涨跌幅": row.get('涨跌幅'),
+                            "涨跌额": row.get('涨跌额'),
+                            "总市值": row.get('总市值'),
+                            "流通市值": row.get('流通市值'),
+                            "市盈率": row.get('市盈率-动态') or row.get('市盈率-动态市盈率'),
+                            "市净率": row.get('市净率'),
+                            "换手率": row.get('换手率'),
+                        }
+                    }
+            except Exception:
+                pass
+
+        mgr = multiprocessing.Manager()
+        res = mgr.dict()
+        p = multiprocessing.Process(target=_try_em, args=(res,))
+        p.start()
+        p.join(timeout=12)
+        if p.is_alive():
+            p.kill()
+            p.join()
+        if 'result' in res:
+            result = res['result']
+    except Exception:
+        pass
+
+    # 2) EM 失败 → 直调 Sina 单只 HTTP API（避免全表爬取）+ stock_value_em 补估值
+    if result is None:
         try:
-            df = fn()
-            # Sina 列名与 EM 一致（代码/名称/最新价等），但代码带 sh/sz 前缀
-            col = code_col if '代码' in df.columns else None
-            if col is None:
-                continue
-            if source == "sina":
-                # Sina 代码格式为 sh600519，需加前缀匹配
-                _prefix = 'sh' if code.startswith('6') else 'sz'
-                stock = df[df[col] == f'{_prefix}{code}']
-            else:
-                stock = df[df[col] == code]
+            # Sina 实时价格
+            _prefix = 'sh' if code.startswith('6') else 'sz'
+            url = f'https://hq.sinajs.cn/list={_prefix}{code}'
+            headers = {'Referer': 'https://finance.sina.com.cn'}
+            resp = requests.get(url, headers=headers, timeout=10)
+            # 格式: var hq_str_sh600519="名称,今开,昨收,现价,最高,最低,买一,卖一,成交量,成交额,...";
+            parts = resp.text.split('"')[1].split(',')
+            name = parts[0]
+            price = float(parts[3]) if parts[3] else None
+            change = None
+            change_pct = None
+            if price and parts[1]:
+                open_p = float(parts[1])
+                change = price - open_p
+                change_pct = (change / open_p * 100) if open_p else None
 
-            if stock.empty:
-                continue
-
-            row = stock.iloc[0]
-            return {
+            result = {
                 "status": "success",
                 "data": {
-                    "代码": row.get('代码', code),
-                    "名称": row.get('名称', ''),
-                    "最新价": row.get('最新价'),
-                    "涨跌幅": row.get('涨跌幅'),
-                    "涨跌额": row.get('涨跌额'),
-                    "总市值": row.get('总市值'),
-                    "流通市值": row.get('流通市值'),
-                    "市盈率": row.get('市盈率-动态') or row.get('市盈率-动态市盈率'),
-                    "市净率": row.get('市净率'),
-                    "换手率": row.get('换手率'),
+                    "代码": code,
+                    "名称": name,
+                    "最新价": price,
+                    "涨跌幅": change_pct,
+                    "涨跌额": change,
+                    "总市值": None,
+                    "流通市值": None,
+                    "市盈率": None,
+                    "市净率": None,
+                    "换手率": None,
                 }
             }
-        except Exception:
-            continue
 
-    return {"status": "error", "message": f"获取行情失败：EM 和 Sina 数据源均不可用"}
+            # 补 PE/PB/市值
+            vdf = ak.stock_value_em(symbol=code)
+            if vdf is not None and not vdf.empty:
+                latest = vdf.tail(1).iloc[0]
+                result["data"]["市盈率"] = latest.get("PE(TTM)")
+                result["data"]["市净率"] = latest.get("市净率")
+                result["data"]["总市值"] = latest.get("总市值")
+                result["data"]["流通市值"] = latest.get("总市值")  # value_em 总市值=流通市值统一
+        except Exception:
+            pass
+
+    if result is None:
+        return {"status": "error", "message": "获取行情失败：EM 和 Sina 数据源均不可用"}
+
+    return result
 
 
 def get_stock_hist(code: str, days: int = 250) -> dict:
