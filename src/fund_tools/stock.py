@@ -386,10 +386,16 @@ def get_stock_profit_forecast(code: str) -> dict:
         return {
             "status": "success",
             "data": {
-                "预测年度": latest.get('预测年度'),
-                "预测EPS": latest.get('预测每股收益'),
-                "预测净利润": latest.get('预测净利润'),
-                "机构数": latest.get('机构数'),
+                "机构覆盖数": latest.get('研报数'),
+                "评级_买入": latest.get('机构投资评级(近六个月)-买入'),
+                "评级_增持": latest.get('机构投资评级(近六个月)-增持'),
+                "评级_中性": latest.get('机构投资评级(近六个月)-中性'),
+                "评级_减持": latest.get('机构投资评级(近六个月)-减持'),
+                "评级_卖出": latest.get('机构投资评级(近六个月)-卖出'),
+                "2025E_EPS": latest.get('2025预测每股收益'),
+                "2026E_EPS": latest.get('2026预测每股收益'),
+                "2027E_EPS": latest.get('2027预测每股收益'),
+                "2028E_EPS": latest.get('2028预测每股收益'),
             }
         }
     except Exception as e:
