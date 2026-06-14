@@ -19,3 +19,11 @@ from . import drawdown      # noqa: F401
 from . import exit_eval     # noqa: F401
 from . import update        # noqa: F401
 from . import cache         # noqa: F401
+from . import financial     # noqa: F401
+from . import technical     # noqa: F401
+from . import forecast      # noqa: F401
+
+# 添加子命令组
+stock_app.add_typer(financial.financial_app, name="financial")
+stock_app.add_typer(technical.technical_app, name="technical")
+stock_app.add_typer(forecast.forecast_app, name="forecast")
