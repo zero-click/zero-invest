@@ -9,8 +9,12 @@ def get_current_year() -> str:
     return str(datetime.now().year)
 
 
-def print_banner():
-    """打印横幅"""
+def print_banner(subtitle: str = ""):
+    """打印横幅
+
+    Args:
+        subtitle: 可选副标题，显示在横幅下方
+    """
     print("""
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║                                                                      ║
@@ -19,6 +23,8 @@ def print_banner():
 ║                                                                      ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 """)
+    if subtitle:
+        print(f"\n  ── {subtitle} ──\n")
 
 
 def _fmt_amount(val) -> str:
