@@ -32,7 +32,11 @@ def technical(
     typer.echo(f"  当前回撤: {stats.get('当前回撤', 'N/A'):.2f}%")
     typer.echo("")
     typer.echo("【技术指标】")
-    typer.echo(f"  RSI(14): {stats.get('RSI(14)', 'N/A'):.2f}" if stats.get('RSI(14') is not None else "  RSI(14): N/A")
+    rsi_value = stats.get('RSI(14)')
+    if rsi_value is not None:
+        typer.echo(f"  RSI(14): {rsi_value:.2f}")
+    else:
+        typer.echo("  RSI(14): N/A")
 
     if '200日均线' in stats:
         typer.echo(f"  200日均线: {stats.get('200日均线', 'N/A'):.2f}")

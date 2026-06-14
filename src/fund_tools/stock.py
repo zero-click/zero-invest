@@ -177,8 +177,8 @@ def get_stock_financial_indicator(code: str) -> dict:
         if df.empty:
             return {"status": "error", "message": f"未获取到 {code} 的财务指标"}
 
-        # 获取最新一期数据
-        latest = df.iloc[-1]
+        # 获取最新一期数据（akshare返回降序，第一行是最新的）
+        latest = df.iloc[0]
 
         return {
             "status": "success",
@@ -241,17 +241,23 @@ def get_stock_profit_sheet(code: str) -> dict:
         if df.empty:
             return {"status": "error", "message": f"未获取到 {code} 的利润表数据"}
 
-        # 获取最新一期数据
-        latest = df.iloc[-1]
+        # 获取最新一期数据（akshare返回降序，第一行是最新的）
+        latest = df.iloc[0]
+
+        # 数值单位转换：元 → 亿元
+        revenue = latest.get('TOTAL_OPERATE_INCOME')
+        cost = latest.get('TOTAL_OPERATE_COST')
+        net_profit = latest.get('PARENT_NETPROFIT')
+        ebitda = latest.get('OPERATE_PROFIT')
 
         return {
             "status": "success",
             "data": {
                 "报告期": latest.get('REPORT_DATE'),
-                "营业收入": latest.get('TOTAL_OPERATE_INCOME'),
-                "营业成本": latest.get('TOTAL_OPERATE_COST'),
-                "净利润": latest.get('PARENT_NETPROFIT'),
-                "EBITDA": latest.get('OPERATE_PROFIT'),  # 以营业利润近似EBITDA
+                "营业收入": revenue / 1e8 if revenue is not None and pd.notna(revenue) else None,
+                "营业成本": cost / 1e8 if cost is not None and pd.notna(cost) else None,
+                "净利润": net_profit / 1e8 if net_profit is not None and pd.notna(net_profit) else None,
+                "EBITDA": ebitda / 1e8 if ebitda is not None and pd.notna(ebitda) else None,  # 注：用营业利润近似EBITDA，未加回折旧摊销，会系统性低估
             }
         }
     except Exception as e:
@@ -281,21 +287,22 @@ def get_stock_cash_flow(code: str) -> dict:
         if df.empty:
             return {"status": "error", "message": f"未获取到 {code} 的现金流量表数据"}
 
-        # 获取最新一期数据
-        latest = df.iloc[-1]
+        # 获取最新一期数据（akshare返回降序，第一行是最新的）
+        latest = df.iloc[0]
 
         # 计算自由现金流：经营现金流 - 资本支出
         operating_cf = latest.get('NETCASH_OPERATE', 0)
         capex = latest.get('CONSTRUCT_LONG_ASSET', 0)
         fcf = operating_cf - capex if operating_cf and capex else None
 
+        # 数值单位转换：元 → 亿元
         return {
             "status": "success",
             "data": {
                 "报告期": latest.get('REPORT_DATE'),
-                "经营活动现金流": operating_cf,
-                "资本支出": capex,
-                "自由现金流": fcf,
+                "经营活动现金流": operating_cf / 1e8 if pd.notna(operating_cf) else None,
+                "资本支出": capex / 1e8 if pd.notna(capex) else None,
+                "自由现金流": fcf / 1e8 if pd.notna(fcf) else None,
             }
         }
     except Exception as e:
@@ -325,17 +332,23 @@ def get_stock_balance_sheet(code: str) -> dict:
         if df.empty:
             return {"status": "error", "message": f"未获取到 {code} 的资产负债表数据"}
 
-        # 获取最新一期数据
-        latest = df.iloc[-1]
+        # 获取最新一期数据（akshare返回降序，第一行是最新的）
+        latest = df.iloc[0]
+
+        # 数值单位转换：元 → 亿元
+        inventory = latest.get('INVENTORY')
+        total_debt = latest.get('TOTAL_LIABILITIES')
+        cash = latest.get('MONETARYFUNDS')
+        total_assets = latest.get('TOTAL_ASSETS')
 
         return {
             "status": "success",
             "data": {
                 "报告期": latest.get('REPORT_DATE'),
-                "存货": latest.get('INVENTORY'),
-                "总负债": latest.get('TOTAL_LIABILITIES'),
-                "货币资金": latest.get('MONETARYFUNDS'),
-                "总资产": latest.get('TOTAL_ASSETS'),
+                "存货": inventory / 1e8 if inventory is not None and pd.notna(inventory) else None,
+                "总负债": total_debt / 1e8 if total_debt is not None and pd.notna(total_debt) else None,
+                "货币资金": cash / 1e8 if cash is not None and pd.notna(cash) else None,
+                "总资产": total_assets / 1e8 if total_assets is not None and pd.notna(total_assets) else None,
             }
         }
     except Exception as e:
@@ -365,11 +378,14 @@ def get_stock_profit_forecast(code: str) -> dict:
         df = ak.stock_profit_forecast_em(symbol=symbol)
 
         # API可能返回None或空数据
-        if df is None or (hasattr(df, 'empty') and df.empty):
+        if df is None:
             return {"status": "error", "message": f"未获取到 {code} 的盈利预测数据（该股票可能无分析师覆盖）"}
 
-        # 获取最新一期预测数据
-        latest = df.iloc[-1]
+        if not hasattr(df, 'iloc') or df.empty:
+            return {"status": "error", "message": f"未获取到 {code} 的盈利预测数据（返回数据为空）"}
+
+        # 获取最新一期预测数据（第一行是最新的）
+        latest = df.iloc[0]
 
         return {
             "status": "success",
@@ -406,24 +422,24 @@ def get_stock_share_change(code: str) -> dict:
         # 获取最新一期股本变动
         latest = df.iloc[-1]
 
-        # 计算稀释率：股本YoY变动百分比
+        # 计算稀释率：股本YoY变动百分比（数值）
         current_shares = latest.get('总股本', 0)
         change_reason = latest.get('变动原因', '')
         notice_date = latest.get('公告日期')
 
-        # 简化的稀释率计算（基于变动原因）
+        # 尝试计算实际稀释率（需要上期数据）
         dilution_rate = None
-        if '回购' in change_reason or '缩股' in change_reason:
-            dilution_rate = 'negative'  # 回购/缩股是正向的
-        elif '增发' in change_reason or '配股' in change_reason:
-            dilution_rate = 'positive'  # 增发/配股可能稀释
+        if len(df) >= 2:
+            previous_shares = df.iloc[-2].get('总股本', 0)
+            if previous_shares and previous_shares > 0:
+                dilution_rate = (current_shares - previous_shares) / previous_shares * 100
 
         return {
             "status": "success",
             "data": {
                 "公告日期": str(notice_date) if notice_date else 'N/A',
                 "总股本": current_shares,
-                "稀释率": dilution_rate,
+                "稀释率": dilution_rate,  # 数值百分比，如 -0.2 表示回购缩股0.2%
                 "变动原因": change_reason,
             }
         }
@@ -718,12 +734,6 @@ def get_stock_checklist(code: str, stock_type: str = "a") -> dict:
     Returns:
         完整检查数据
     """
-    # 获取分类
-    classify_result = classify_stock(code)
-
-    # 获取场景分析
-    stock_type = classify_result.get('type', '待分类')
-
     # 根据用户指定的类型选择场景分析
     if stock_type == "a":
         analysis = analyze_scenario_a(code)
