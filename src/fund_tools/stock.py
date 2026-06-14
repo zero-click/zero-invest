@@ -14,6 +14,7 @@ import akshare as ak
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 import pandas as pd
+import numpy as np
 
 
 def search_stock(keyword: str) -> dict:
@@ -73,7 +74,7 @@ def get_stock_spot(code: str) -> dict:
         return {"status": "error", "message": f"获取行情失败: {str(e)}"}
 
 
-def get_stock_hist(code: str, days: int = 90) -> dict:
+def get_stock_hist(code: str, days: int = 250) -> dict:
     """获取个股历史K线数据
 
     Args:
@@ -114,6 +115,35 @@ def get_stock_hist(code: str, days: int = 90) -> dict:
             "最大回撤": max_drawdown * 100,
             "年化波动率": volatility * 100,
         }
+
+        # 新增技术指标（需要足够数据）
+        if len(df) >= 14:
+            rsi_14 = _calculate_rsi(df['收盘'], 14)
+            stats["RSI(14)"] = rsi_14
+
+        if len(df) >= 200:
+            # 200日均线
+            ma200 = df.tail(200)['收盘'].mean()
+            ma200_deviation = (current_price - ma200) / ma200 * 100 if ma200 > 0 else 0
+            stats["200日均线"] = ma200
+            stats["200日均线乖离率"] = ma200_deviation
+
+        if len(df) >= 252:
+            # 52周（约252个交易日）数据
+            yearly_data = df.tail(252)
+            high_52w = yearly_data['最高'].max()
+            low_52w = yearly_data['最低'].min()
+
+            stats["52周最高"] = high_52w
+            stats["52周最低"] = low_52w
+
+            # 52周涨幅
+            return_52w = (current_price - yearly_data.iloc[0]['收盘']) / yearly_data.iloc[0]['收盘'] * 100
+            stats["52周涨幅"] = return_52w
+
+            # 距52周高点距离
+            dist_to_high = (current_price - high_52w) / high_52w * 100 if high_52w > 0 else 0
+            stats["距52周高点距离"] = dist_to_high
 
         return {
             "status": "success",
@@ -165,6 +195,260 @@ def get_stock_financial_indicator(code: str) -> dict:
         return {"status": "error", "message": f"获取财务指标失败: {str(e)}"}
 
 
+def _calculate_rsi(prices: pd.Series, period: int = 14) -> Optional[float]:
+    """计算RSI指标
+
+    Args:
+        prices: 价格序列
+        period: RSI周期（默认14）
+
+    Returns:
+        RSI值（0-100），计算失败返回None
+    """
+    try:
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+
+        return rsi.iloc[-1] if not rsi.empty and pd.notna(rsi.iloc[-1]) else None
+    except Exception:
+        return None
+
+
+def get_stock_profit_sheet(code: str) -> dict:
+    """获取个股利润表数据（营业收入）
+
+    Args:
+        code: 股票代码（如 "000001"）
+
+    Returns:
+        {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
+    """
+    try:
+        # 转换代码格式
+        if code.startswith('6'):
+            symbol = f"{code}.SH"
+        elif code.startswith('0') or code.startswith('3'):
+            symbol = f"{code}.SZ"
+        else:
+            symbol = code
+
+        df = ak.stock_profit_sheet_by_report_em(symbol=symbol)
+
+        if df.empty:
+            return {"status": "error", "message": f"未获取到 {code} 的利润表数据"}
+
+        # 获取最新一期数据
+        latest = df.iloc[-1]
+
+        return {
+            "status": "success",
+            "data": {
+                "报告期": latest.get('REPORT_DATE'),
+                "营业收入": latest.get('TOTAL_OPERATE_INCOME'),
+                "营业成本": latest.get('TOTAL_OPERATE_COST'),
+                "净利润": latest.get('PARENT_NETPROFIT'),
+                "EBITDA": latest.get('OPERATE_PROFIT'),  # 以营业利润近似EBITDA
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"获取利润表失败: {str(e)}"}
+
+
+def get_stock_cash_flow(code: str) -> dict:
+    """获取个股现金流量表数据（自由现金流）
+
+    Args:
+        code: 股票代码
+
+    Returns:
+        {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
+    """
+    try:
+        # 转换代码格式
+        if code.startswith('6'):
+            symbol = f"{code}.SH"
+        elif code.startswith('0') or code.startswith('3'):
+            symbol = f"{code}.SZ"
+        else:
+            symbol = code
+
+        df = ak.stock_cash_flow_sheet_by_report_em(symbol=symbol)
+
+        if df.empty:
+            return {"status": "error", "message": f"未获取到 {code} 的现金流量表数据"}
+
+        # 获取最新一期数据
+        latest = df.iloc[-1]
+
+        # 计算自由现金流：经营现金流 - 资本支出
+        operating_cf = latest.get('NETCASH_OPERATE', 0)
+        capex = latest.get('CONSTRUCT_LONG_ASSET', 0)
+        fcf = operating_cf - capex if operating_cf and capex else None
+
+        return {
+            "status": "success",
+            "data": {
+                "报告期": latest.get('REPORT_DATE'),
+                "经营活动现金流": operating_cf,
+                "资本支出": capex,
+                "自由现金流": fcf,
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"获取现金流量表失败: {str(e)}"}
+
+
+def get_stock_balance_sheet(code: str) -> dict:
+    """获取个股资产负债表数据
+
+    Args:
+        code: 股票代码
+
+    Returns:
+        {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
+    """
+    try:
+        # 转换代码格式
+        if code.startswith('6'):
+            symbol = f"{code}.SH"
+        elif code.startswith('0') or code.startswith('3'):
+            symbol = f"{code}.SZ"
+        else:
+            symbol = code
+
+        df = ak.stock_balance_sheet_by_report_em(symbol=symbol)
+
+        if df.empty:
+            return {"status": "error", "message": f"未获取到 {code} 的资产负债表数据"}
+
+        # 获取最新一期数据
+        latest = df.iloc[-1]
+
+        return {
+            "status": "success",
+            "data": {
+                "报告期": latest.get('REPORT_DATE'),
+                "存货": latest.get('INVENTORY'),
+                "总负债": latest.get('TOTAL_LIABILITIES'),
+                "货币资金": latest.get('MONETARYFUNDS'),
+                "总资产": latest.get('TOTAL_ASSETS'),
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"获取资产负债表失败: {str(e)}"}
+
+
+def get_stock_profit_forecast(code: str) -> dict:
+    """获取个股盈利预测（分析师一致预期）
+
+    注：该数据源可能不稳定，部分股票无预测数据
+
+    Args:
+        code: 股票代码
+
+    Returns:
+        {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
+    """
+    try:
+        # 转换代码格式
+        if code.startswith('6'):
+            symbol = f"{code}.SH"
+        elif code.startswith('0') or code.startswith('3'):
+            symbol = f"{code}.SZ"
+        else:
+            symbol = code
+
+        df = ak.stock_profit_forecast_em(symbol=symbol)
+
+        # API可能返回None或空数据
+        if df is None or (hasattr(df, 'empty') and df.empty):
+            return {"status": "error", "message": f"未获取到 {code} 的盈利预测数据（该股票可能无分析师覆盖）"}
+
+        # 获取最新一期预测数据
+        latest = df.iloc[-1]
+
+        return {
+            "status": "success",
+            "data": {
+                "预测年度": latest.get('预测年度'),
+                "预测EPS": latest.get('预测每股收益'),
+                "预测净利润": latest.get('预测净利润'),
+                "机构数": latest.get('机构数'),
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"获取盈利预测失败: {str(e)}"}
+
+
+def get_stock_share_change(code: str) -> dict:
+    """获取个股股本变动情况（用于计算稀释率）
+
+    Args:
+        code: 股票代码
+
+    Returns:
+        {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
+    """
+    try:
+        # API需要日期范围参数
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = '20200101'
+
+        df = ak.stock_share_change_cninfo(symbol=code, start_date=start_date, end_date=end_date)
+
+        if df.empty:
+            return {"status": "error", "message": f"未获取到 {code} 的股本变动数据"}
+
+        # 获取最新一期股本变动
+        latest = df.iloc[-1]
+
+        # 计算稀释率：股本YoY变动百分比
+        current_shares = latest.get('总股本', 0)
+        change_reason = latest.get('变动原因', '')
+        notice_date = latest.get('公告日期')
+
+        # 简化的稀释率计算（基于变动原因）
+        dilution_rate = None
+        if '回购' in change_reason or '缩股' in change_reason:
+            dilution_rate = 'negative'  # 回购/缩股是正向的
+        elif '增发' in change_reason or '配股' in change_reason:
+            dilution_rate = 'positive'  # 增发/配股可能稀释
+
+        return {
+            "status": "success",
+            "data": {
+                "公告日期": str(notice_date) if notice_date else 'N/A',
+                "总股本": current_shares,
+                "稀释率": dilution_rate,
+                "变动原因": change_reason,
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"获取股本变动失败: {str(e)}"}
+
+
+def get_stock_report_date(code: str) -> dict:
+    """获取个股财报披露日期
+
+    注：当前akshare API仅支持按市场批量查询，不支持按单个股票代码查询
+
+    Args:
+        code: 股票代码
+
+    Returns:
+        {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
+    """
+    # 当前API不支持按股票代码查询，返回提示信息
+    return {
+        "status": "error",
+        "message": "财报披露日期查询暂不支持（akshare API仅支持按市场批量查询）"
+    }
+
+
 def analyze_scenario_a(code: str) -> dict:
     """场景A分析：稳定成长型（Forward PE / PEG）
 
@@ -181,16 +465,32 @@ def analyze_scenario_a(code: str) -> dict:
 
     data = spot['data']
 
-    # 获取财务指标
+    # 获取盈利预测
+    forecast = get_stock_profit_forecast(code)
+
+    # 获取财务指标（作为fallback）
     financial = get_stock_financial_indicator(code)
 
-    # 获取盈利预测（简化处理，使用营收增速近似）
-    growth_rate = financial.get('data', {}).get('营收增速', 0)
+    # 计算Forward PE和增速
+    current_price = data.get('最新价', 0)
+    forecast_eps = None
+    growth_rate = None
 
-    # 计算 PEG
-    pe = data.get('市盈率', 0)
-    if pe and pe > 0 and growth_rate:
-        peg = pe / growth_rate
+    if forecast['status'] == 'success':
+        forecast_data = forecast.get('data', {})
+        forecast_eps = forecast_data.get('预测EPS')
+        # 预测净利润增速需要从预测数据计算或使用历史增速
+        growth_rate = financial.get('data', {}).get('净利润增速')
+
+    # 如果没有预测EPS，使用TTM PE
+    if forecast_eps and forecast_eps > 0:
+        forward_pe = current_price / forecast_eps
+    else:
+        forward_pe = data.get('市盈率', 0)
+
+    # PEG计算
+    if forward_pe and growth_rate and growth_rate != 0:
+        peg = forward_pe / abs(growth_rate)
     else:
         peg = None
 
@@ -201,8 +501,10 @@ def analyze_scenario_a(code: str) -> dict:
         "data": {
             "股票代码": code,
             "股票名称": data.get('名称'),
-            "市盈率-TTM": pe,
-            "营收增速": growth_rate,
+            "最新价": current_price,
+            "Forward PE": forward_pe,
+            "预测EPS": forecast_eps,
+            "预期增速": growth_rate,
             "PEG": peg,
             "判断": _evaluate_scenario_a(peg, growth_rate),
         }
@@ -250,21 +552,45 @@ def analyze_scenario_b(code: str) -> dict:
 
     data = spot['data']
 
-    # 获取财务数据
+    # 获取利润表（营收）
+    profit_sheet = get_stock_profit_sheet(code)
+    revenue = None
+    if profit_sheet['status'] == 'success':
+        revenue = profit_sheet.get('data', {}).get('营业收入')
+
+    # 获取现金流量表（FCF）
+    cash_flow = get_stock_cash_flow(code)
+    fcf = None
+    if cash_flow['status'] == 'success':
+        fcf = cash_flow.get('data', {}).get('自由现金流')
+
+    # 获取股本变动（稀释率）
+    share_change = get_stock_share_change(code)
+    dilution_rate = None
+    if share_change['status'] == 'success':
+        dilution_rate = share_change.get('data', {}).get('稀释率')
+
+    # 获取财务指标（毛利率、净利率、营收增速）
     financial = get_stock_financial_indicator(code)
-    if financial['status'] != 'success':
-        return {"status": "error", "message": "无法获取财务数据"}
+    gross_margin = None
+    net_margin = None
+    revenue_growth = None
+    if financial['status'] == 'success':
+        fin_data = financial.get('data', {})
+        gross_margin = fin_data.get('毛利率')
+        net_margin = fin_data.get('净利率')
+        revenue_growth = fin_data.get('营收增速')
 
-    fin_data = financial['data']
-
-    # 简化计算（实际需要完整的利润表和现金流量表）
+    # 计算PS
     market_cap = data.get('总市值', 0)
-    revenue_growth = fin_data.get('营收增速', 0)
-    gross_margin = fin_data.get('毛利率', 0)
+    ps = None
+    if revenue and revenue > 0:
+        ps = market_cap / revenue
 
-    # PS 估值
-    # 假设年收入需要从利润表获取，这里用市值和营收增速做简化
-    ps = "N/A"  # 需要营收数据
+    # 计算FCF Margin
+    fcf_margin = None
+    if fcf and revenue and revenue > 0:
+        fcf_margin = (fcf / revenue) * 100
 
     return {
         "status": "success",
@@ -273,10 +599,16 @@ def analyze_scenario_b(code: str) -> dict:
         "data": {
             "股票代码": code,
             "股票名称": data.get('名称'),
+            "最新价": data.get('最新价'),
+            "总市值": market_cap,
             "PS": ps,
+            "营收": revenue,
             "营收增速": revenue_growth,
             "毛利率": gross_margin,
-            "说明": "完整场景B分析需要利润表和现金流量表数据",
+            "净利率": net_margin,
+            "自由现金流": fcf,
+            "FCF Margin": fcf_margin,
+            "稀释率": dilution_rate,
         }
     }
 
@@ -296,10 +628,43 @@ def analyze_scenario_c(code: str) -> dict:
 
     data = spot['data']
 
-    pb = data.get('市净率', 0)
+    # 获取资产负债表
+    balance_sheet = get_stock_balance_sheet(code)
+    inventory = None
+    total_debt = None
+    cash = None
+    if balance_sheet['status'] == 'success':
+        bs_data = balance_sheet.get('data', {})
+        inventory = bs_data.get('存货')
+        total_debt = bs_data.get('总负债')
+        cash = bs_data.get('货币资金')
 
-    # 获取估值比较数据（包含EV/EBITDA）
-    # 这里做简化处理
+    # 获取利润表（营业成本、EBITDA）
+    profit_sheet = get_stock_profit_sheet(code)
+    cogs = None
+    ebitda = None
+    if profit_sheet['status'] == 'success':
+        ps_data = profit_sheet.get('data', {})
+        cogs = ps_data.get('营业成本')
+        ebitda = ps_data.get('EBITDA')
+
+    # 计算DOI（库存周转天数）
+    doi = None
+    if cogs and cogs > 0 and inventory is not None:
+        doi = (inventory / cogs) * 365
+
+    # 计算EV（企业价值）
+    market_cap = data.get('总市值', 0)
+    ev = None
+    if total_debt is not None and cash is not None:
+        ev = market_cap + total_debt - cash
+
+    # 计算EV/EBITDA
+    ev_ebitda = None
+    if ev and ebitda and ebitda > 0:
+        ev_ebitda = ev / ebitda
+
+    pb = data.get('市净率', 0)
 
     return {
         "status": "success",
@@ -308,8 +673,16 @@ def analyze_scenario_c(code: str) -> dict:
         "data": {
             "股票代码": code,
             "股票名称": data.get('名称'),
+            "最新价": data.get('最新价'),
             "PB": pb,
-            "说明": "完整场景C分析需要库存天数和EV/EBITDA数据",
+            "存货": inventory,
+            "营业成本": cogs,
+            "DOI": doi,
+            "总负债": total_debt,
+            "货币资金": cash,
+            "企业价值EV": ev,
+            "EBITDA": ebitda,
+            "EV/EBITDA": ev_ebitda,
         }
     }
 
