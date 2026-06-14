@@ -20,23 +20,88 @@ import numpy as np
 def search_stock(keyword: str) -> dict:
     """搜索股票
 
+    用 EM 全表快照搜索（含实时价/PE/PB），EM 挂时走 stock_info_a_code_name
+    + get_stock_spot 回补（仅含 code+name+价+PE/PB）。
+
     Args:
         keyword: 股票代码或名称关键词
 
     Returns:
         {"status": "success", "data": [列表]} 或 {"status": "error", "message": "..."}
     """
+    import pandas as pd
+    import multiprocessing
+
+    records = None
+
+    # 1) EM spot（全表，含价格/PE/PB）
     try:
-        df = ak.stock_zh_a_spot_em()
-        # 按代码或名称过滤
-        filtered = df[(df['代码'].str.contains(keyword, case=False, na=False)) |
-                      (df['名称'].str.contains(keyword, case=False, na=False))]
-        return {
-            "status": "success",
-            "data": filtered[['代码', '名称', '最新价', '涨跌幅', '市值', '市盈率-动态', '市净率']].to_dict('records')
-        }
-    except Exception as e:
-        return {"status": "error", "message": f"搜索失败: {str(e)}"}
+        def _try_em(out_dict):
+            try:
+                df = ak.stock_zh_a_spot_em()
+                filtered = df[(df['代码'].str.contains(keyword, case=False, na=False)) |
+                              (df['名称'].str.contains(keyword, case=False, na=False))]
+                out_dict['data'] = filtered[['代码', '名称', '最新价', '涨跌幅',
+                                              '市值', '市盈率-动态', '市净率']].to_dict('records')
+            except Exception:
+                pass
+
+        mgr = multiprocessing.Manager()
+        res = mgr.dict()
+        p = multiprocessing.Process(target=_try_em, args=(res,))
+        p.start()
+        p.join(timeout=12)
+        if p.is_alive():
+            p.kill()
+            p.join()
+        if 'data' in res:
+            records = list(res['data'])
+    except Exception:
+        pass
+
+    # 2) EM 失败 → stock_info_a_code_name 拿 code+name 列表 + get_stock_spot 单只补
+    if records is None:
+        try:
+            df = ak.stock_info_a_code_name()
+            filtered = df[(df['code'].str.contains(keyword, case=False, na=False)) |
+                          (df['name'].str.contains(keyword, case=False, na=False))]
+            if filtered.empty:
+                return {"status": "success", "data": []}
+
+            # 最多补前 20 只的价格/PE/PB
+            records = []
+            for _, row in filtered.head(20).iterrows():
+                code = str(row['code'])
+                name = row['name']
+                spot = get_stock_spot(code)
+                if spot['status'] == 'success':
+                    d = spot['data']
+                    records.append({
+                        '代码': code,
+                        '名称': name,
+                        '最新价': d.get('最新价'),
+                        '涨跌幅': d.get('涨跌幅'),
+                        '市值': d.get('总市值'),
+                        '市盈率-动态': d.get('市盈率'),
+                        '市净率': d.get('市净率'),
+                    })
+                else:
+                    records.append({
+                        '代码': code,
+                        '名称': name,
+                        '最新价': None,
+                        '涨跌幅': None,
+                        '市值': None,
+                        '市盈率-动态': None,
+                        '市净率': None,
+                    })
+        except Exception as e:
+            return {"status": "error", "message": f"搜索失败: {str(e)}"}
+
+    if not records:
+        return {"status": "success", "data": []}
+
+    return {"status": "success", "data": records}
 
 
 def get_stock_spot(code: str) -> dict:
