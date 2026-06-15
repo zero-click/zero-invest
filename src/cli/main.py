@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """根 Typer 应用：组装所有子命令组"""
 
+import logging
 import typer
 
 app = typer.Typer(
@@ -8,6 +9,18 @@ app = typer.Typer(
     help="中国公募基金、指数与个股信息查询工具 v2.3",
     no_args_is_help=True,
 )
+
+
+@app.callback()
+def main(
+    debug: bool = typer.Option(False, "--debug", help="启用 DEBUG 日志"),
+):
+    if debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
 
 
 def _register():
