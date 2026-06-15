@@ -107,6 +107,8 @@ def search_stock(keyword: str) -> dict:
 def get_stock_spot(code: str) -> dict:
     """获取个股实时行情
 
+    数据源优先级: 腾讯财经 → EM spot → Sina + stock_value_em
+
     Args:
         code: 股票代码（如 "000001"）
 
@@ -117,57 +119,64 @@ def get_stock_spot(code: str) -> dict:
 
     result = None
 
-    # 1) 试 EM spot（全表快照，含 PE/PB，但 push2 CDN 在部分网络下不可用）
-    #    用短 timeout 避免 TCP 连接挂死
+    # 1) 腾讯财经 HTTP（纯 HTTP，不封 IP，<0.1s，含 PE/PB/市值）
     try:
-        import multiprocessing
-
-        def _try_em(out_dict):
-            try:
-                df = ak.stock_zh_a_spot_em()
-                stock = df[df['代码'] == code]
-                if not stock.empty:
-                    row = stock.iloc[0]
-                    out_dict['result'] = {
-                        "status": "success",
-                        "data": {
-                            "代码": row.get('代码', code),
-                            "名称": row.get('名称', ''),
-                            "最新价": row.get('最新价'),
-                            "涨跌幅": row.get('涨跌幅'),
-                            "涨跌额": row.get('涨跌额'),
-                            "总市值": row.get('总市值'),
-                            "流通市值": row.get('流通市值'),
-                            "市盈率": row.get('市盈率-动态') or row.get('市盈率-动态市盈率'),
-                            "市净率": row.get('市净率'),
-                            "换手率": row.get('换手率'),
-                        }
-                    }
-            except Exception:
-                pass
-
-        mgr = multiprocessing.Manager()
-        res = mgr.dict()
-        p = multiprocessing.Process(target=_try_em, args=(res,))
-        p.start()
-        p.join(timeout=12)
-        if p.is_alive():
-            p.kill()
-            p.join()
-        if 'result' in res:
-            result = res['result']
+        from .tencent import tencent_spot
+        tq = tencent_spot(code)
+        if tq:
+            result = {"status": "success", "data": tq}
     except Exception:
         pass
 
-    # 2) EM 失败 → 直调 Sina 单只 HTTP API（避免全表爬取）+ stock_value_em 补估值
+    # 2) 腾讯失败 → EM spot（全表快照，push2 CDN 可能不可用）
     if result is None:
         try:
-            # Sina 实时价格
+            import multiprocessing
+
+            def _try_em(out_dict):
+                try:
+                    df = ak.stock_zh_a_spot_em()
+                    stock = df[df['代码'] == code]
+                    if not stock.empty:
+                        row = stock.iloc[0]
+                        out_dict['result'] = {
+                            "status": "success",
+                            "data": {
+                                "代码": row.get('代码', code),
+                                "名称": row.get('名称', ''),
+                                "最新价": row.get('最新价'),
+                                "涨跌幅": row.get('涨跌幅'),
+                                "涨跌额": row.get('涨跌额'),
+                                "总市值": row.get('总市值'),
+                                "流通市值": row.get('流通市值'),
+                                "市盈率": row.get('市盈率-动态') or row.get('市盈率-动态市盈率'),
+                                "市净率": row.get('市净率'),
+                                "换手率": row.get('换手率'),
+                            }
+                        }
+                except Exception:
+                    pass
+
+            mgr = multiprocessing.Manager()
+            res = mgr.dict()
+            p = multiprocessing.Process(target=_try_em, args=(res,))
+            p.start()
+            p.join(timeout=12)
+            if p.is_alive():
+                p.kill()
+                p.join()
+            if 'result' in res:
+                result = res['result']
+        except Exception:
+            pass
+
+    # 3) EM 失败 → Sina 单只 HTTP + stock_value_em 补估值
+    if result is None:
+        try:
             _prefix = 'sh' if code.startswith('6') else 'sz'
             url = f'https://hq.sinajs.cn/list={_prefix}{code}'
             headers = {'Referer': 'https://finance.sina.com.cn'}
             resp = requests.get(url, headers=headers, timeout=10)
-            # 格式: var hq_str_sh600519="名称,今开,昨收,现价,最高,最低,买一,卖一,成交量,成交额,...";
             parts = resp.text.split('"')[1].split(',')
             name = parts[0]
             price = float(parts[3]) if parts[3] else None
@@ -194,25 +203,26 @@ def get_stock_spot(code: str) -> dict:
                 }
             }
 
-            # 补 PE/PB/市值
             vdf = ak.stock_value_em(symbol=code)
             if vdf is not None and not vdf.empty:
                 latest = vdf.tail(1).iloc[0]
                 result["data"]["市盈率"] = latest.get("PE(TTM)")
                 result["data"]["市净率"] = latest.get("市净率")
                 result["data"]["总市值"] = latest.get("总市值")
-                result["data"]["流通市值"] = latest.get("总市值")  # value_em 总市值=流通市值统一
+                result["data"]["流通市值"] = latest.get("总市值")
         except Exception:
             pass
 
     if result is None:
-        return {"status": "error", "message": "获取行情失败：EM 和 Sina 数据源均不可用"}
+        return {"status": "error", "message": "获取行情失败：腾讯、EM 和 Sina 数据源均不可用"}
 
     return result
 
 
 def get_stock_hist(code: str, days: int = 250) -> dict:
     """获取个股历史K线数据
+
+    数据源优先级: EM push2 (前复权) → Sina HTTP (不复权, fallback)
 
     Args:
         code: 股票代码
@@ -221,10 +231,15 @@ def get_stock_hist(code: str, days: int = 250) -> dict:
     Returns:
         {"status": "success", "data": DataFrame, "stats": {...}} 或 {"status": "error", "message": "..."}
     """
+    import requests
+    import json
+
+    df = None
+
+    # 1) EM push2 前复权日K线（主通道，含涨跌幅列）
     try:
         end_date = datetime.now().strftime('%Y%m%d')
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
-
         df = ak.stock_zh_a_hist(
             symbol=code,
             period='daily',
@@ -232,100 +247,113 @@ def get_stock_hist(code: str, days: int = 250) -> dict:
             end_date=end_date,
             adjust='qfq'
         )
+    except Exception:
+        pass
 
-        if df.empty:
-            return {"status": "error", "message": f"未获取到 {code} 的历史数据"}
+    # 2) EM 失败 → Sina HTTP 日K线（纯HTTP，不封IP，不复权）
+    if df is None or df.empty:
+        try:
+            _prefix = 'sh' if code.startswith('6') else 'sz'
+            url = f'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={_prefix}{code}&scale=240&ma=no&datalen={days}'
+            headers = {'Referer': 'https://finance.sina.com.cn'}
+            resp = requests.get(url, headers=headers, timeout=15)
+            if resp.text.strip():
+                klines = json.loads(resp.text)
+                if klines:
+                    rows = []
+                    for k in klines:
+                        rows.append({
+                            '日期': k['day'],
+                            '开盘': float(k['open']),
+                            '收盘': float(k['close']),
+                            '最高': float(k['high']),
+                            '最低': float(k['low']),
+                            '成交量': int(float(k['volume'])),
+                        })
+                    df = pd.DataFrame(rows)
+                    df['涨跌幅'] = df['收盘'].pct_change() * 100
+        except Exception:
+            pass
 
-        # 计算统计指标
-        current_price = df.iloc[-1]['收盘']
-        high_30d = df.tail(30)['最高'].max()
-        max_drawdown = ((df['收盘'].cummax() - df['收盘']) / df['收盘'].cummax()).max()
-        current_drawdown = (current_price - high_30d) / high_30d if high_30d > 0 else 0
+    if df is None or df.empty:
+        return {"status": "error", "message": f"未获取到 {code} 的历史数据（EM 和 Sina 均不可用）"}
 
-        returns = df['收盘'].pct_change().dropna()
-        volatility = returns.std() * (252 ** 0.5)  # 年化波动率
+    # 计算统计指标（统一用 收盘/最高/最低 列）
+    close = df['收盘']
+    high = df['最高']
+    low = df['最低']
 
-        stats = {
-            "期间涨跌幅": (current_price - df.iloc[0]['收盘']) / df.iloc[0]['收盘'] * 100,
-            "30日高点": high_30d,
-            "当前回撤": current_drawdown * 100,
-            "最大回撤": max_drawdown * 100,
-            "年化波动率": volatility * 100,
-        }
+    current_price = float(close.iloc[-1])
+    high_30d = float(high.tail(30).max())
+    max_drawdown = float(((close.cummax() - close) / close.cummax()).max())
+    current_drawdown = (current_price - high_30d) / high_30d if high_30d > 0 else 0
 
-        # 新增技术指标（需要足够数据）
-        if len(df) >= 14:
-            rsi_14 = _calculate_rsi(df['收盘'], 14)
-            stats["RSI(14)"] = rsi_14
+    returns = close.pct_change().dropna()
+    volatility = float(returns.std() * (252 ** 0.5))
 
-        if len(df) >= 200:
-            # 200日均线
-            ma200 = df.tail(200)['收盘'].mean()
-            ma200_deviation = (current_price - ma200) / ma200 * 100 if ma200 > 0 else 0
-            stats["200日均线"] = ma200
-            stats["200日均线乖离率"] = ma200_deviation
+    stats = {
+        "期间涨跌幅": (current_price - float(close.iloc[0])) / float(close.iloc[0]) * 100,
+        "30日高点": high_30d,
+        "当前回撤": current_drawdown * 100,
+        "最大回撤": max_drawdown * 100,
+        "年化波动率": volatility * 100,
+    }
 
-        if len(df) >= 252:
-            # 52周（约252个交易日）数据
-            yearly_data = df.tail(252)
-            high_52w = yearly_data['最高'].max()
-            low_52w = yearly_data['最低'].min()
+    if len(df) >= 14:
+        rsi_14 = _calculate_rsi(close, 14)
+        stats["RSI(14)"] = rsi_14
 
-            stats["52周最高"] = high_52w
-            stats["52周最低"] = low_52w
+    if len(df) >= 200:
+        ma200 = float(close.tail(200).mean())
+        stats["200日均线"] = ma200
+        stats["200日均线乖离率"] = (current_price - ma200) / ma200 * 100 if ma200 > 0 else 0
 
-            # 52周涨幅
-            return_52w = (current_price - yearly_data.iloc[0]['收盘']) / yearly_data.iloc[0]['收盘'] * 100
-            stats["52周涨幅"] = return_52w
+    if len(df) >= 252:
+        yearly_data = close.tail(252)
+        high_52w = float(high.tail(252).max())
+        low_52w = float(low.tail(252).min())
+        stats["52周最高"] = high_52w
+        stats["52周最低"] = low_52w
+        stats["52周涨幅"] = (current_price - float(yearly_data.iloc[0])) / float(yearly_data.iloc[0]) * 100
+        stats["距52周高点距离"] = (current_price - high_52w) / high_52w * 100 if high_52w > 0 else 0
 
-            # 距52周高点距离
-            dist_to_high = (current_price - high_52w) / high_52w * 100 if high_52w > 0 else 0
-            stats["距52周高点距离"] = dist_to_high
-
-        return {
-            "status": "success",
-            "data": df,
-            "stats": stats
-        }
-    except Exception as e:
-        return {"status": "error", "message": f"获取历史数据失败: {str(e)}"}
+    return {
+        "status": "success",
+        "data": df,
+        "stats": stats
+    }
 
 
 def get_stock_financial_indicator(code: str) -> dict:
-    """获取个股财务分析指标
+    """获取个股财务分析指标（ROE/毛利率/净利率/增速/杠杆）
+
+    使用 stock_financial_analysis_indicator（非 _em 后缀），
+    需显式传入 start_year 避免直接全量拉取。
 
     Args:
-        code: 股票代码（需带后缀，如 "301389.SZ"）
+        code: 股票代码（如 "600519"）
 
     Returns:
         {"status": "success", "data": {...}} 或 {"status": "error", "message": "..."}
     """
     try:
-        # 转换代码格式
-        if code.startswith('6'):
-            symbol = f"SH{code}"
-        elif code.startswith('0') or code.startswith('3'):
-            symbol = f"{code}.SZ"
-        else:
-            symbol = code
-
-        df = ak.stock_financial_analysis_indicator_em(symbol=symbol, indicator="按报告期")
+        start_year = str(datetime.now().year - 5)
+        df = ak.stock_financial_analysis_indicator(symbol=code, start_year=start_year)
 
         if df.empty:
             return {"status": "error", "message": f"未获取到 {code} 的财务指标"}
 
-        # 获取最新一期数据（akshare返回降序，第一行是最新的）
         latest = df.iloc[0]
 
         return {
             "status": "success",
             "data": {
-                "ROE": latest.get('净资产收益率(ROE)'),
-                "毛利率": latest.get('销售毛利率'),
-                "净利率": latest.get('销售净利率'),
-                "营收增速": latest.get('营业总收入同比增长'),
-                "净利润增速": latest.get('净利润同比增长'),
-                "资产负债率": latest.get('资产负债率'),
+                "ROE": latest.get('净资产收益率(%)'),
+                "毛利率": latest.get('销售毛利率(%)'),
+                "净利率": latest.get('销售净利率(%)'),
+                "营收增速": latest.get('主营业务收入增长率(%)'),
+                "净利润增速": latest.get('净利润增长率(%)'),
+                "资产负债率": latest.get('资产负债率(%)'),
             }
         }
     except Exception as e:

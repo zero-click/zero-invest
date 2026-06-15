@@ -33,8 +33,11 @@ def search(
     typer.echo("  " + "-" * 80)
 
     for stock in stocks[:20]:  # 最多显示20条
+        def _s(v):
+            """None-safe string for format specs"""
+            return str(v) if v is not None else "N/A"
         typer.echo(
             f"  {stock['代码']:<10s} {stock['名称']:<20s} "
-            f"{stock['最新价']:<10s} {stock['涨跌幅']:<10s} "
-            f"{stock['市值']:<15s} {stock['市盈率-动态']:<8s} {stock['市净率']:<8s}"
+            f"{_s(stock['最新价']):<10s} {_s(stock['涨跌幅']):<10s} "
+            f"{_s(stock['市值']):<15s} {_s(stock['市盈率-动态']):<8s} {_s(stock['市净率']):<8s}"
         )

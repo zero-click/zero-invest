@@ -72,6 +72,14 @@ BROAD_INDEX_MAP = {
     "000903": ("中证100", "宽基"),
     "000906": ("中证800", "宽基"),
     "399330": ("深证100", "宽基"),
+    # --- 以下为 2026-06 补充 ---
+    "000688": ("科创50", "宽基"),
+    "399006": ("创业板指", "成长"),
+    "000510": ("中证A500", "宽基"),
+    "932000": ("中证2000", "宽基"),
+    "931643": ("双创50", "成长"),
+    "899050": ("北证50", "宽基"),
+    "930955": ("红利低波100", "红利"),
 }
 
 INDUSTRY_INDEX_MAP = {
@@ -79,18 +87,23 @@ INDUSTRY_INDEX_MAP = {
     "932133": ("银行行业", "金融"),
     "932135": ("资本市场行业", "金融"),
     "932136": ("保险行业", "金融"),
+    "399975": ("证券公司", "金融"),
 
     # 周期资源
     "932077": ("全指能源行业", "能源"),
     "932078": ("全指材料行业", "材料"),
     "932112": ("有色金属行业", "资源"),
     "932113": ("钢铁行业", "资源"),
+    "000813": ("细分化工", "资源"),
 
-    # 工业制造
-    "932079": ("全指工业行业", "工业"),
+    # 工业制造 — 删掉了"全指工业"(子行业已全覆盖)
     "932118": ("电力设备行业", "制造"),
     "932119": ("机械制造行业", "制造"),
     "932123": ("汽车汽配行业", "制造"),
+    "931752": ("工程机械", "制造"),
+    "931746": ("储能产业", "制造"),
+    "930997": ("新能源汽车", "制造"),
+    "H30590": ("机器人", "制造"),
 
     # 消费
     "932080": ("全指可选行业", "可选消费"),
@@ -98,6 +111,7 @@ INDUSTRY_INDEX_MAP = {
     "932127": ("零售行业", "消费"),
     "932128": ("食品饮料烟草行业", "消费"),
     "932130": ("家庭用品行业", "消费"),
+    "931778": ("农牧主题", "消费"),
 
     # 医药
     "932131": ("医疗行业", "医疗"),
@@ -108,6 +122,8 @@ INDUSTRY_INDEX_MAP = {
     "932085": ("全指通信行业", "通信"),
     "932138": ("电子行业", "科技"),
     "932139": ("半导体行业", "科技"),
+    "930713": ("人工智能", "科技"),
+    "931494": ("消费电子", "科技"),
 
     # 防御 / 公用
     "932086": ("全指公用行业", "公用事业"),
@@ -116,6 +132,7 @@ INDUSTRY_INDEX_MAP = {
     # 地产链
     "932076": ("全指地产", "地产"),
     "932117": ("建筑装饰行业", "建筑"),
+    "931009": ("全指建筑材料", "建筑"),
 
     # 其他重要观察
     "932142": ("传媒行业", "传媒"),
@@ -188,11 +205,11 @@ def _build_index_rows(index_map: Dict[str, Any], source_type: str) -> List[Dict[
 
     for code, (expected_name, category) in index_map.items():
         logging.debug(f"正在获取 {expected_name} ({code}) 的估值数据...")
-        details = get_index_valuation(code, include_dividend=False)  # heatmap 不需要股息率，跳过慢速接口
-        time.sleep(10)
-        # 只在获取失败时延迟，避免频繁失败导致限流
+        details = get_index_valuation(code, include_dividend=False)
         if details.get("估值数据源") == "无" or details.get("PE_TTM") is None:
-            time.sleep(0.3)
+            time.sleep(0.5)
+        else:
+            time.sleep(0.1)
         if details.get("status") == "error":
             continue
 
@@ -216,6 +233,12 @@ def _build_index_rows(index_map: Dict[str, Any], source_type: str) -> List[Dict[
                 "估值温度": _normalize_valuation_level(
                     details.get("PE估值等级") or details.get("估值等级_PE") or details.get("估值等级")
                 ),
+                "PE分位_3年": details.get("PE分位_3年"),
+                "PE分位_5年": details.get("PE分位_5年"),
+                "PE分位_10年": details.get("PE分位_10年"),
+                "PB分位_3年": details.get("PB分位_3年"),
+                "PB分位_5年": details.get("PB分位_5年"),
+                "PB分位_10年": details.get("PB分位_10年"),
                 "估值依据": "分位数" if details.get("PE估值等级") else "未知",
                 "数据源": details.get("估值数据源", "未知"),
                 "类型": source_type,
@@ -253,6 +276,12 @@ def _build_csrc_rows() -> List[Dict[str, Any]]:
                 "PE估值温度": _valuation_bucket(pe_value),
                 "PB估值温度": "未知",
                 "估值温度": _valuation_bucket(pe_value),
+                "PE分位_3年": None,
+                "PE分位_5年": None,
+                "PE分位_10年": None,
+                "PB分位_3年": None,
+                "PB分位_5年": None,
+                "PB分位_10年": None,
                 "数据源": item.get("数据源", "证监会行业"),
                 "估值依据": "绝对值",
                 "类型": "csrc",
@@ -382,6 +411,23 @@ def format_heatmap_table(heatmap: Dict[str, Any], limit: int = 30) -> str:
     lines = []
     title = heatmap.get("title", "指数估值热力图")
     lines.append(f"{title} | 分类: {heatmap['category']} | 排序: {heatmap['sort_by']}")
+
+    def _fmt_pct(value: Any) -> str:
+        """格式化分位百分比"""
+        if value is None:
+            return "N/A"
+        try:
+            return f"{float(value):.0f}%"
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _fmt_pcts(item: dict, prefix: str) -> str:
+        """PE/PB 分位组合: 3y%/5y%/10y%"""
+        p3 = _fmt_pct(item.get(f"{prefix}分位_3年"))
+        p5 = _fmt_pct(item.get(f"{prefix}分位_5年"))
+        p10 = _fmt_pct(item.get(f"{prefix}分位_10年"))
+        return f"{p3}/{p5}/{p10}"
+
     table_rows = []
     for item in heatmap["data"][:limit]:
         table_rows.append(
@@ -392,17 +438,17 @@ def format_heatmap_table(heatmap: Dict[str, Any], limit: int = 30) -> str:
                 _fmt_number(item.get("PE")),
                 _fmt_number(item.get("PB")),
                 _fmt_number(item.get("股息率")),
-                str(item.get("数据源", "")),
+                _fmt_pcts(item, "PE"),
+                _fmt_pcts(item, "PB"),
                 str(item.get("PE估值温度", "")),
                 str(item.get("PB估值温度", "")),
-                str(item.get("估值依据", "")),
             ]
         )
 
     lines.append(
         tabulate(
             table_rows,
-            headers=["代码", "名称", "分类", "PE", "PB", "股息率", "数据源", "PE估值", "PB估值", "估值依据"],
+            headers=["代码", "名称", "分类", "PE", "PB", "股息率", "PE分位3/5/10Y", "PB分位3/5/10Y", "PE估值", "PB估值"],
             tablefmt="simple",
             disable_numparse=True,
         )
