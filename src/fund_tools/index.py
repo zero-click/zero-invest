@@ -1714,74 +1714,42 @@ def get_index_recent_performance(code: str, days: int = 30) -> Dict[str, Any]:
     try:
         logger.info(f"正在查询指数 {code} 最近 {days} 天的行情走势...")
 
-        # 计算日期范围
-        end_date = datetime.now()
+        # 计算日期范围（归零到当日00:00，避免时间部分过滤掉边界日）
+        end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = end_date - timedelta(days=days)
 
-        # 优先使用中证指数历史行情（如果代码是中证指数）
+        # ── 1. 腾讯日线（优先：当日数据及时、境外友好） ──
         df = None
         try:
-            df = ak.stock_zh_index_hist_csindex(
-                symbol=code,
-                start_date=start_date.strftime("%Y%m%d"),
-                end_date=end_date.strftime("%Y%m%d")
-            )
+            tx_code = f"sh{code}" if code.startswith(("0", "1")) else f"sz{code}"
+            df_tx = ak.stock_zh_index_daily_tx(symbol=tx_code)
+            if df_tx is not None and not df_tx.empty:
+                df_tx["date"] = pd.to_datetime(df_tx["date"])
+                mask = (df_tx["date"] >= pd.Timestamp(start_date)) & (
+                    df_tx["date"] <= pd.Timestamp(end_date)
+                )
+                df = df_tx[mask].copy()
+                df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+                # 腾讯列名英→中，下游兼容
+                df.rename(columns={
+                    "date": "日期", "open": "开盘", "close": "收盘",
+                    "high": "最高", "low": "最低", "amount": "成交金额",
+                }, inplace=True)
         except Exception as e:
-            logger.debug(f"中证指数历史行情失败: {e}")
+            logger.debug(f"腾讯日线历史行情失败: {e}")
 
-        # 如果中证失败或无数据，尝试腾讯日线（境外友好，当日收盘数据更及时）
+        # ── 2. 中证csindex（备选：含PE等更多列，但T+1无当日数据） ──
         if df is None or df.empty:
             try:
-                # bare 6-digit → 带交易所前缀的腾讯格式
-                tx_code = f"sh{code}" if code.startswith(("0", "1")) else f"sz{code}"
-                df_tx = ak.stock_zh_index_daily_tx(symbol=tx_code)
-                if df_tx is not None and not df_tx.empty:
-                    df_tx["date"] = pd.to_datetime(df_tx["date"])
-                    mask = (df_tx["date"] >= pd.Timestamp(start_date)) & (
-                        df_tx["date"] <= pd.Timestamp(end_date)
-                    )
-                    df = df_tx[mask].copy()
-                    # date列转字符串，避免pd.Timestamp序列化多出时间部分
-                    df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+                df = ak.stock_zh_index_hist_csindex(
+                    symbol=code,
+                    start_date=start_date.strftime("%Y%m%d"),
+                    end_date=end_date.strftime("%Y%m%d")
+                )
             except Exception as e:
-                logger.debug(f"腾讯日线历史行情失败: {e}")
+                logger.debug(f"中证指数历史行情失败: {e}")
 
-        # csindex有数据但缺最新日（如今天）→ 用腾讯补全
-        if df is not None and not df.empty:
-            try:
-                today_str = datetime.now().strftime("%Y-%m-%d")
-                df_dates = df["日期"].astype(str) if "日期" in df.columns else df["date"].astype(str)
-                if today_str not in df_dates.values:
-                    tx_code = f"sh{code}" if code.startswith(("0", "1")) else f"sz{code}"
-                    df_tx = ak.stock_zh_index_daily_tx(symbol=tx_code)
-                    if df_tx is not None and not df_tx.empty:
-                        df_tx["date"] = pd.to_datetime(df_tx["date"])
-                        tx_today = df_tx[df_tx["date"] == pd.Timestamp(today_str)]
-                        if not tx_today.empty:
-                            tx_today = tx_today.copy()
-                            tx_today["date"] = tx_today["date"].dt.strftime("%Y-%m-%d")
-                            # 用date列名统一追加，下游兼容
-                            tx_today.rename(columns={
-                                "date": "日期",
-                                "open": "开盘",
-                                "close": "收盘",
-                                "high": "最高",
-                                "low": "最低",
-                                "amount": "成交金额",
-                            }, inplace=True)
-                            # 补缺失列（csindex专属列用空值填充）
-                            for col in df.columns:
-                                if col not in tx_today.columns:
-                                    tx_today[col] = None
-                            df = pd.concat([df, tx_today], ignore_index=True)
-                            # 按日期排序去重（保留csindex优先）
-                            df = df.drop_duplicates(subset=["日期"], keep="first")
-                            df = df.sort_values("日期").reset_index(drop=True)
-                            logger.info(f"腾讯补全今日数据: {today_str}")
-            except Exception as e:
-                logger.debug(f"腾讯补今日数据失败: {e}")
-
-        # 如果腾讯也失败，使用东方财富（最后屏障）
+        # ── 3. 东方财富（最后屏障） ──
         if df is None or df.empty:
             try:
                 _clear_proxy_env()
