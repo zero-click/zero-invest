@@ -339,10 +339,89 @@ def get_csrc_industry_pe_snapshot(lookback_days: int = 30) -> List[Dict[str, Any
 
     return []
 
+
+def get_guozheng_industry_pe_snapshot(
+    lookback_days: int = 30, level: int = 3
+) -> List[Dict[str, Any]]:
+    """
+    获取国证行业分类 PE 快照（巨潮资讯 cninfo）
+
+    国证行业分类基于 GICS 体系，提供 4 级行业分类：
+      L1: 11个  L2: 30个  L3: 88个  L4: 164个
+
+    与证监会行业分类不同，国证 L3 颗粒度更细，
+    且行业划分更贴近国际标准（能源设备、半导体、通信设备等）。
+
+    Args:
+        lookback_days: 向前回溯天数，默认 30 天
+        level: 行业层级，默认 3（三级）
+
+    Returns:
+        行业估值快照列表，每项包含：
+        - 行业编码: 国证分类编码 (如 C010101)
+        - 行业名称
+        - 日期
+        - 静态PE: 加权平均
+        - 静态PE_中位数
+        - 公司数量 / 纳入计算公司数量 / 总市值
+        - 数据源: "国证行业"
+    """
+    for days_back in range(max(1, lookback_days)):
+        target_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
+        try:
+            df = ak.stock_industry_pe_ratio_cninfo(
+                symbol="国证行业分类",
+                date=target_date,
+            )
+        except Exception as e:
+            logger.debug(f"获取国证行业 PE 失败 ({target_date}): {e}")
+            continue
+
+        if df is None or df.empty:
+            continue
+
+        results: List[Dict[str, Any]] = []
+        snapshot_date = str(df.iloc[0].get("变动日期", target_date))
+        for _, row in df.iterrows():
+            row_level = pd.to_numeric(row.get("行业层级"), errors="coerce")
+            if pd.isna(row_level) or int(row_level) != level:
+                continue
+
+            industry_code = str(row.get("行业编码", "")).strip()
+            industry_name = str(row.get("行业名称", "")).strip()
+            if not industry_name or not industry_code:
+                continue
+
+            pe_weighted = pd.to_numeric(row.get("静态市盈率-加权平均"), errors="coerce")
+            pe_median = pd.to_numeric(row.get("静态市盈率-中位数"), errors="coerce")
+            company_count = pd.to_numeric(row.get("公司数量"), errors="coerce")
+            company_effective = pd.to_numeric(row.get("纳入计算公司数量"), errors="coerce")
+            total_mcap = pd.to_numeric(row.get("总市值-静态"), errors="coerce")
+
+            results.append(
+                {
+                    "行业编码": industry_code,
+                    "行业名称": industry_name,
+                    "日期": snapshot_date,
+                    "静态PE": round(float(pe_weighted), 2) if pd.notna(pe_weighted) else None,
+                    "静态PE_中位数": round(float(pe_median), 2) if pd.notna(pe_median) else None,
+                    "静态PE_加权平均": round(float(pe_weighted), 2) if pd.notna(pe_weighted) else None,
+                    "公司数量": int(company_count) if pd.notna(company_count) else None,
+                    "纳入计算公司数量": int(company_effective) if pd.notna(company_effective) else None,
+                    "总市值_亿": round(float(total_mcap), 2) if pd.notna(total_mcap) else None,
+                    "数据源": "国证行业",
+                }
+            )
+
+        if results:
+            return results
+
+    return []
+
+
 def _classify_index(index_class: str, asset_class: str) -> str:
     """
     根据指数类别和资产类别分类
-
     Args:
         index_class: 指数类别（规模/行业/主题/策略/风格）
         asset_class: 资产类别（股票/固定收益/多资产）
@@ -1635,22 +1714,42 @@ def get_index_recent_performance(code: str, days: int = 30) -> Dict[str, Any]:
     try:
         logger.info(f"正在查询指数 {code} 最近 {days} 天的行情走势...")
 
-        # 计算日期范围
-        end_date = datetime.now()
+        # 计算日期范围（归零到当日00:00，避免时间部分过滤掉边界日）
+        end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = end_date - timedelta(days=days)
 
-        # 优先使用中证指数历史行情（如果代码是中证指数）
+        # ── 1. 腾讯日线（优先：当日数据及时、境外友好） ──
         df = None
         try:
-            df = ak.stock_zh_index_hist_csindex(
-                symbol=code,
-                start_date=start_date.strftime("%Y%m%d"),
-                end_date=end_date.strftime("%Y%m%d")
-            )
+            tx_code = f"sh{code}" if code.startswith(("0", "1")) else f"sz{code}"
+            df_tx = ak.stock_zh_index_daily_tx(symbol=tx_code)
+            if df_tx is not None and not df_tx.empty:
+                df_tx["date"] = pd.to_datetime(df_tx["date"])
+                mask = (df_tx["date"] >= pd.Timestamp(start_date)) & (
+                    df_tx["date"] <= pd.Timestamp(end_date)
+                )
+                df = df_tx[mask].copy()
+                df["date"] = df["date"].dt.strftime("%Y-%m-%d")
+                # 腾讯列名英→中，下游兼容
+                df.rename(columns={
+                    "date": "日期", "open": "开盘", "close": "收盘",
+                    "high": "最高", "low": "最低", "amount": "成交金额",
+                }, inplace=True)
         except Exception as e:
-            logger.debug(f"中证指数历史行情失败: {e}")
+            logger.debug(f"腾讯日线历史行情失败: {e}")
 
-        # 如果中证失败，使用东方财富
+        # ── 2. 中证csindex（备选：含PE等更多列，但T+1无当日数据） ──
+        if df is None or df.empty:
+            try:
+                df = ak.stock_zh_index_hist_csindex(
+                    symbol=code,
+                    start_date=start_date.strftime("%Y%m%d"),
+                    end_date=end_date.strftime("%Y%m%d")
+                )
+            except Exception as e:
+                logger.debug(f"中证指数历史行情失败: {e}")
+
+        # ── 3. 东方财富（最后屏障） ──
         if df is None or df.empty:
             try:
                 _clear_proxy_env()
